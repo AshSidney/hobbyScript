@@ -2,8 +2,6 @@
 
 #include <CppScript/Types.h>
 
-#include <CppScript/Base.h>
-#include <CppScript/TypeWrapper.h>
 
 namespace CppScript
 {
@@ -105,42 +103,5 @@ namespace CppScript
 		Operation::Ref destinationOperation;
 		Operation::Ref sourceOperation;
 	};
-
-
-	class Context;
-
-	class OperationOld : public Visitable<OperationOld, Element, ElementVisitor>
-	{
-	public:
-		virtual void setUp(const Elements& data) = 0;
-		virtual TypeWrapperBase::Ref execute(Context& context) const = 0;
-	};
-
-	class Sum : public Visitable<Sum, OperationOld, ElementVisitor>
-	{
-	public:
-		void setUp(const Elements& data) override;
-		TypeWrapperBase::Ref execute(Context& context) const override;
-
-		//void accept(VisitorOld& visitor) const override;
-		//void accept(VisitorOld& visitor) override;
-
-	private:
-		Elements operands;
-	};
-
-	class Iterator : public OperationOld
-	{
-
-	};
-
-	/*class RangeGenerator : public OperationOld
-	{
-	public:
-		//virtual Ref execute() override;
-
-	protected:
-		//IntValue currentValue;
-	};*/
 
 }

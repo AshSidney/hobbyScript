@@ -15,23 +15,6 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="VisitorMock.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="ValueAccessor.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="BaseTest.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="VisitorTest.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="TypeInfoTest.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="TypesTest.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

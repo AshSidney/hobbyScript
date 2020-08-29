@@ -1,5 +1,4 @@
 #include <CppScript/Operations.h>
-#include <CppScript/TypeWrapper.h>
 #include <CppScript/Serializer.h>
 #include <CppScript/Execution.h>
 #include <array>
@@ -125,75 +124,5 @@ void AddOperation::serialize(Serializer& serializer)
 	serializer.serialize(destinationOperation);
 	serializer.serialize(sourceOperation);
 }
-
-
-/*class SumVisitor : public ElementVisitorFailing
-{
-public:
-	explicit SumVisitor(Context& context) : context(context)
-	{}
-
-	void visit(const TypeWrapperBase& wrapper) override
-	{
-		sumValue += TypeWrapper<long long>::typeDescriptor.get(wrapper);
-	}
-	void visit(TypeWrapperBase& wrapper) override
-	{
-		const TypeWrapperBase& constWrapper{ wrapper };
-		visit(constWrapper);
-	}
-	void visit(const Elements& elements) override
-	{
-		for (const auto& element : elements.elements)
-			element->accept(*this);
-	}
-	void visit(Elements& elements) override
-	{
-		const Elements& constElements{ elements };
-		visit(constElements);
-	}
-	void visit(const OperationOld& operation) override
-	{
-		visit(*operation.execute(context));
-	}
-	void visit(OperationOld& operation) override
-	{
-		const OperationOld& constOperation{ operation };
-		visit(constOperation);
-	}
-
-	long long sumValue{ 0 };
-
-protected:
-	Context& context;
-};
-
-void Sum::setUp(const Elements& data)
-{
-	operands = data;
-}
-
-TypeWrapperBase::Ref Sum::execute(Context& context) const
-{
-	SumVisitor sum{ context };
-	operands.accept(sum);
-	return Element::create<TypeWrapper<long long>>(sum.sumValue);
-}*/
-
-/*void Sum::accept(VisitorOld& visitor) const
-{
-	visitor.visit(*this);
-}
-
-void Sum::accept(VisitorOld& visitor)
-{
-	visitor.visit(*this);
-}*/
-
-
-/*Element::Ref RangeGenerator::execute()
-{
-	return{};
-}*/
 
 }

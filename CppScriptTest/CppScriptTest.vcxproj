@@ -150,15 +150,8 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="ValueAccessor.h" />
-    <ClInclude Include="VisitorMock.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="BaseTest.cpp" />
     <ClCompile Include="OperationsTest.cpp" />
-    <ClCompile Include="TypeInfoTest.cpp" />
     <ClCompile Include="TypesTest.cpp" />
-    <ClCompile Include="VisitorTest.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\CppScript\CppScript.vcxproj">

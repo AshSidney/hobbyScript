@@ -12,9 +12,4 @@ Context& Executor::getContext()
 	return context;
 }
 
-/*Element::Ref ForLoop::execute() const
-{
-
-}*/
-
 }
