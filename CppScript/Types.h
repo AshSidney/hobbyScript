@@ -148,25 +148,6 @@ namespace CppScript
 	};
 
 
-	/*template <typename T> class TypeCast
-	{
-	public:
-		const T& getThis() const
-		{
-			return static_cast<const T&>(*this);
-		}
-
-		T& getThis()
-		{
-			return static_cast<T&>(*this);
-		}
-	};*/
-
-	//std::optional<FloatValue> getFloat(const TypeBase& obj);
-	//FloatValue getFloatOrIntAsFloat(const TypeBase& obj);
-
-
-
 	template<typename T> std::enable_if_t<std::is_class_v<T>, T&> TypeBase::as()
 	{
 		return Type<T>::id().get(*this);

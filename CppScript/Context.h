@@ -10,6 +10,7 @@ namespace CppScript
 	public:
 		TypeBase::Ref get(const std::string& id);
 		TypeBase::Ref set(const std::string& id, TypeBase::Ref value);
+		void swap(const std::string& id1, const std::string& id2);
 
 	private:
 		std::unordered_map<std::string, TypeBase::Ref> data;
