@@ -25,49 +25,35 @@ private:
 };
 
 
-class JsonArrayLoader : public JsonLoader
-{
-public:
-	explicit JsonArrayLoader(const Json& data) : JsonLoader(data), currentData(data.begin())
-	{}
-
-protected:
-	const Json& getData() override
-	{
-		return *currentData++;
-	}
-
-private:
-	Json::const_iterator currentData;
-};
-
-
 JsonLoader::JsonLoader(const Json& data) : operationData(data)
 {}
 
 void JsonLoader::serialize(Operation::Ref& obj)
 {
-	const auto& data = getData();
-	obj = Operation::create(data["type"].get<std::string>());
+	obj = Operation::create(operationData["type"].get<std::string>());
 	if (obj)
 	{
-		const auto& opData = data["data"];
-		if (opData.is_array())
-		{
-			JsonArrayLoader opLoader{ opData };
-			obj->serialize(opLoader);
-		}
-		else
-		{
-			JsonLoader opLoader{ opData };
-			obj->serialize(opLoader);
-		}
+		obj->serialize(*this);
 	}
 }
 
-void JsonLoader::serialize(TypeBase::Ref& value)
+void JsonLoader::serialize(std::vector<Operation::Ref>& objs, const char* name)
 {
-	const auto& data = getData();
+	const auto& data = operationData[name];
+	if (!data.is_array())
+		return;
+	for (const auto& objData : data)
+	{
+		JsonLoader opLoader{ objData };
+		Operation::Ref obj;
+		opLoader.serialize(obj);
+		objs.push_back(std::move(obj));
+	}
+}
+
+void JsonLoader::serialize(TypeBase::Ref& value, const char* name)
+{
+	const auto& data = operationData[name];
 	if (data.is_number_integer())
 		value = TypeInt::create(data.get<TypeInt::ValueType>());
 	else if (data.is_number_float())
@@ -78,14 +64,14 @@ void JsonLoader::serialize(TypeBase::Ref& value)
 		throw NotBaseType{ data.type_name() };
 }
 
-void JsonLoader::serialize(std::string& value)
+void JsonLoader::serialize(IntValue& value, const char* name)
 {
-	value = getData().get<std::string>();
+	value = operationData[name].get<IntValue>();
 }
 
-const Json& JsonLoader::getData()
+void JsonLoader::serialize(std::string& value, const char* name)
 {
-	return operationData;
+	value = operationData[name].get<std::string>();
 }
 
 }

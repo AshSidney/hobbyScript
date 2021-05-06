@@ -21,9 +21,6 @@
     <ClInclude Include="Execution.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Context.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="Types.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -42,9 +39,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Execution.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Context.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Types.cpp">

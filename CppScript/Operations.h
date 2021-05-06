@@ -1,6 +1,7 @@
 #pragma once
 
 #include <CppScript/Types.h>
+#include <vector>
 
 
 namespace CppScript
@@ -12,17 +13,26 @@ namespace CppScript
 	enum class OperationType
 	{
 		Value,
-		Read,
-		Clone,
-		Assign,
+		CloneValue,
+		LocalValue,
+		CloneLocalValue,
+
 		Swap,
+
 		Add,
+
 		Equal,
 		NotEqual,
 		Less,
 		Greater,
 		LessEqual,
 		GreaterEqual,
+
+		If,
+		IfElse,
+		Loop,
+		Break,
+
 		Last
 	};
 
@@ -31,7 +41,7 @@ namespace CppScript
 	public:
 		virtual ~Operation() = default;
 
-		virtual TypeBase::Ref execute(Executor& executor) const = 0;
+		virtual void execute(Executor& executor) const = 0;
 		virtual void serialize(Serializer& serializer) = 0;
 
 		using Ref = std::unique_ptr<Operation>;
@@ -55,78 +65,86 @@ namespace CppScript
 	};
 
 
-	class ValueOperation : public Operation, public OperationTypeBase<OperationType::Value>
+	class ValueOperationBase : public Operation
 	{
 	public:
-		virtual TypeBase::Ref execute(Executor& executor) const override;
-		virtual void serialize(Serializer& serializer) override;
+		void serialize(Serializer& serializer) override;
 
-	private:
+	protected:
+		IntValue destinationIndex{ 0 };
+	};
+
+	class DirectValueOperationBase : public ValueOperationBase
+	{
+	public:
+		void serialize(Serializer& serializer) override;
+
+	protected:
 		TypeBase::Ref value;
 	};
 
-
-	class ReadOperation : public Operation, public OperationTypeBase<OperationType::Read>
+	class ValueOperation : public DirectValueOperationBase, public OperationTypeBase<OperationType::Value>
 	{
 	public:
-		virtual TypeBase::Ref execute(Executor& executor) const override;
-		virtual void serialize(Serializer& serializer) override;
+		void execute(Executor& executor) const override;
+	};
 
-	private:
-		std::string variableName;
+	class CloneValueOperation : public DirectValueOperationBase, public OperationTypeBase<OperationType::CloneValue>
+	{
+	public:
+		void execute(Executor& executor) const override;
 	};
 
 
-	class AssignOperation : public Operation, public OperationTypeBase<OperationType::Assign>
+	class LocalValueOperationBase : public ValueOperationBase
 	{
 	public:
-		virtual TypeBase::Ref execute(Executor& executor) const override;
-		virtual void serialize(Serializer& serializer) override;
+		void serialize(Serializer& serializer) override;
 
-	private:
-		std::string variableName;
-		Operation::Ref sourceOperation;
+	protected:
+		IntValue sourceIndex{ 0 };
+	};
+
+	class LocalValueOperation : public LocalValueOperationBase, public OperationTypeBase<OperationType::LocalValue>
+	{
+	public:
+		void execute(Executor& executor) const override;
+	};
+
+	class CloneLocalValueOperation : public LocalValueOperationBase, public OperationTypeBase<OperationType::CloneLocalValue>
+	{
+	public:
+		void execute(Executor& executor) const override;
 	};
 
 
 	class SwapOperation : public Operation, public OperationTypeBase<OperationType::Swap>
 	{
 	public:
-		virtual TypeBase::Ref execute(Executor& executor) const override;
-		virtual void serialize(Serializer& serializer) override;
-
-	private:
-		std::string variableName1;
-		std::string variableName2;
-	};
-
-
-	class CloneOperation : public Operation, public OperationTypeBase<OperationType::Clone>
-	{
-	public:
-		virtual TypeBase::Ref execute(Executor& executor) const override;
-		virtual void serialize(Serializer& serializer) override;
-
-	private:
-		Operation::Ref sourceOperation;
-	};
-
-
-	class AccumulatorOperation : public Operation
-	{
-	public:
-		virtual void serialize(Serializer& serializer) override;
+		void execute(Executor& executor) const override;
+		void serialize(Serializer& serializer) override;
 
 	protected:
-		Operation::Ref destinationOperation;
-		Operation::Ref sourceOperation;
+		IntValue index0{ 0 };
+		IntValue index1{ 0 };
 	};
 
 
-	class AddOperation : public AccumulatorOperation, public OperationTypeBase<OperationType::Add>
+	class AccumulationOperation : public Operation
 	{
 	public:
-		virtual TypeBase::Ref execute(Executor& executor) const override;
+		void serialize(Serializer& serializer) override;
+
+	protected:
+		IntValue destinationIndex{ 0 };
+		IntValue sourceIndex{ 0 };
+	};
+
+
+	class AddOperation : public AccumulationOperation, public OperationTypeBase<OperationType::Add>
+	{
+	protected:
+		void execute(Executor& executor) const override;
 	};
 
 
@@ -136,44 +154,89 @@ namespace CppScript
 		virtual void serialize(Serializer& serializer) override;
 
 	protected:
-		Operation::Ref sourceOperation1;
-		Operation::Ref sourceOperation2;
+		IntValue destinationIndex{ 0 };
+		IntValue sourceIndex0{ 0 };
+		IntValue sourceIndex1{ 0 };
 	};
 
 
 	class EqualOperation : public ComparisonOperation, public OperationTypeBase<OperationType::Equal>
 	{
-	public:
-		virtual TypeBase::Ref execute(Executor& executor) const override;
+	protected:
+		void execute(Executor& executor) const override;
 	};
 
 	class NotEqualOperation : public ComparisonOperation, public OperationTypeBase<OperationType::NotEqual>
 	{
-	public:
-		virtual TypeBase::Ref execute(Executor& executor) const override;
+	protected:
+		void execute(Executor& executor) const override;
 	};
 
 	class LessOperation : public ComparisonOperation, public OperationTypeBase<OperationType::Less>
 	{
-	public:
-		virtual TypeBase::Ref execute(Executor& executor) const override;
+	protected:
+		void execute(Executor& executor) const override;
 	};
 
 	class GreaterOperation : public ComparisonOperation, public OperationTypeBase<OperationType::Greater>
 	{
-	public:
-		virtual TypeBase::Ref execute(Executor& executor) const override;
+	protected:
+		void execute(Executor& executor) const override;
 	};
 
 	class LessEqualOperation : public ComparisonOperation, public OperationTypeBase<OperationType::LessEqual>
 	{
-	public:
-		virtual TypeBase::Ref execute(Executor& executor) const override;
+	protected:
+		void execute(Executor& executor) const override;
 	};
 
 	class GreaterEqualOperation : public ComparisonOperation, public OperationTypeBase<OperationType::GreaterEqual>
 	{
-	public:
-		virtual TypeBase::Ref execute(Executor& executor) const override;
+	protected:
+		void execute(Executor& executor) const override;
 	};
+
+
+	class IfOperation : public Operation, public OperationTypeBase<OperationType::If>
+	{
+	public:
+		void execute(Executor& executor) const override;
+		void serialize(Serializer& serializer) override;
+
+	private:
+		IntValue index{ 0 };
+		std::vector<Operation::Ref> operations;
+	};
+
+	class IfElseOperation : public Operation, public OperationTypeBase<OperationType::IfElse>
+	{
+	public:
+		void execute(Executor& executor) const override;
+		void serialize(Serializer& serializer) override;
+
+	private:
+		IntValue index{ 0 };
+		std::vector<Operation::Ref> trueOperations;
+		std::vector<Operation::Ref> falseOperations;
+	};
+
+
+	class LoopOperation : public Operation, public OperationTypeBase<OperationType::Loop>
+	{
+	public:
+		void execute(Executor& executor) const override;
+		void serialize(Serializer& serializer) override;
+
+	private:
+		std::vector<Operation::Ref> operations;
+	};
+
+
+	class BreakOperation : public Operation, public OperationTypeBase<OperationType::Break>
+	{
+	public:
+		virtual void execute(Executor& executor) const override;
+		virtual void serialize(Serializer& serializer) override {}
+	};
+
 }

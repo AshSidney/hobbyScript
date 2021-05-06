@@ -156,7 +156,6 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="BasicTypes.h" />
-    <ClInclude Include="Context.h" />
     <ClInclude Include="Execution.h" />
     <ClInclude Include="Json.h" />
     <ClInclude Include="Operations.h" />
@@ -165,7 +164,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="BasicTypes.cpp" />
-    <ClCompile Include="Context.cpp" />
     <ClCompile Include="Execution.cpp" />
     <ClCompile Include="Operations.cpp" />
     <ClCompile Include="Serializer.cpp" />

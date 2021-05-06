@@ -48,10 +48,10 @@ private:
 };
 
 OpCreator<ValueOperation> valueOp{ "Value" };
-OpCreator<ReadOperation> readOp{ "Read" };
-OpCreator<AssignOperation> assignOp{ "Assign" };
+OpCreator<CloneValueOperation> cloneValueOp{ "CloneValue" };
+OpCreator<LocalValueOperation> localValueOp{ "LocalValue" };
+OpCreator<CloneLocalValueOperation> cloneLocalValueOp{ "CloneLocalValue" };
 OpCreator<SwapOperation> swapOp{ "Swap" };
-OpCreator<CloneOperation> cloneOp{ "Clone" };
 OpCreator<AddOperation> addOp{ "Add" };
 OpCreator<EqualOperation> equalOp{ "Equal" };
 OpCreator<NotEqualOperation> notEqualOp{ "NotEqual" };
@@ -59,6 +59,10 @@ OpCreator<LessOperation> lessOp{ "Less" };
 OpCreator<GreaterOperation> greaterOp{ "Greater" };
 OpCreator<LessEqualOperation> lessEqualOp{ "LessEqual" };
 OpCreator<GreaterEqualOperation> greaterEqualOp{ "GreaterEqual" };
+OpCreator<IfOperation> ifOp{ "If" };
+OpCreator<IfElseOperation> ifElseOp{ "IfElse" };
+OpCreator<LoopOperation> loopOp{ "Loop" };
+OpCreator<BreakOperation> breakOp{ "Break" };
 
 
 Operation::Ref Operation::create(OperationType opType)
@@ -71,118 +75,186 @@ Operation::Ref Operation::create(const std::string& opType)
 	return create(OperationCreator::names.at(opType));
 }
 
-const std::string& getName(OperationType opType)
+const std::string& Operation::getName(OperationType opType)
 {
 	return OperationCreator::creators[size_t(opType)]->getName();
 }
 
 
-TypeBase::Ref ValueOperation::execute(Executor& executor) const
+void ValueOperationBase::serialize(Serializer& serializer)
 {
-	return value;
-}
-
-void ValueOperation::serialize(Serializer& serializer)
-{
-	serializer.serialize(value);
+	serializer.serialize(destinationIndex, "destIndex");
 }
 
 
-TypeBase::Ref ReadOperation::execute(Executor& executor) const
+void DirectValueOperationBase::serialize(Serializer& serializer)
 {
-	return executor.getContext().get(variableName);
-}
-
-void ReadOperation::serialize(Serializer& serializer)
-{
-	serializer.serialize(variableName);
+	ValueOperationBase::serialize(serializer);
+	serializer.serialize(value, "data");
 }
 
 
-TypeBase::Ref AssignOperation::execute(Executor& executor) const
+void ValueOperation::execute(Executor& executor) const
 {
-	return executor.getContext().set(variableName, sourceOperation->execute(executor));
-}
-
-void AssignOperation::serialize(Serializer& serializer)
-{
-	serializer.serialize(variableName);
-	serializer.serialize(sourceOperation);
+	executor.set(destinationIndex, value);
 }
 
 
-TypeBase::Ref SwapOperation::execute(Executor& executor) const
+void CloneValueOperation::execute(Executor& executor) const
 {
-	executor.getContext().swap(variableName1, variableName2);
-	return {};
+	executor.set(destinationIndex, value->clone());
+}
+
+
+void LocalValueOperationBase::serialize(Serializer& serializer)
+{
+	ValueOperationBase::serialize(serializer);
+	serializer.serialize(sourceIndex, "sourceIndex");
+}
+
+
+void LocalValueOperation::execute(Executor& executor) const
+{
+	executor.set(destinationIndex, executor.get(sourceIndex));
+}
+
+
+void CloneLocalValueOperation::execute(Executor& executor) const
+{
+	executor.set(destinationIndex, executor.get(sourceIndex)->clone());
+}
+
+
+void SwapOperation::execute(Executor& executor) const
+{
+	std::swap(executor.get(index0), executor.get(index1));
 }
 
 void SwapOperation::serialize(Serializer& serializer)
 {
-	serializer.serialize(variableName1);
-	serializer.serialize(variableName2);
+	serializer.serialize(index0, "index0");
+	serializer.serialize(index1, "index1");
 }
 
 
-TypeBase::Ref CloneOperation::execute(Executor& executor) const
+void AccumulationOperation::serialize(Serializer& serializer)
 {
-	return sourceOperation->execute(executor)->clone();
-}
-
-void CloneOperation::serialize(Serializer& serializer)
-{
-	serializer.serialize(sourceOperation);
+	serializer.serialize(destinationIndex, "destIndex");
+	serializer.serialize(sourceIndex, "sourceIndex");
 }
 
 
-void AccumulatorOperation::serialize(Serializer& serializer)
+void AddOperation::execute(Executor& executor) const
 {
-	serializer.serialize(destinationOperation);
-	serializer.serialize(sourceOperation);
-}
-
-TypeBase::Ref AddOperation::execute(Executor& executor) const
-{
-	return (*destinationOperation->execute(executor)) += *sourceOperation->execute(executor);
+	*executor.get(destinationIndex) += *executor.get(sourceIndex);
 }
 
 
 void ComparisonOperation::serialize(Serializer& serializer)
 {
-	serializer.serialize(sourceOperation1);
-	serializer.serialize(sourceOperation2);
+	serializer.serialize(destinationIndex, "destIndex");
+	serializer.serialize(sourceIndex0, "sourceIndex0");
+	serializer.serialize(sourceIndex1, "sourceIndex1");
 }
 
-TypeBase::Ref EqualOperation::execute(Executor& executor) const
+
+void EqualOperation::execute(Executor& executor) const
 {
-	return (*sourceOperation1->execute(executor)) == *sourceOperation2->execute(executor) ? TypeBool::trueValue : TypeBool::falseValue;
+	executor.set(destinationIndex, *executor.get(sourceIndex0) == *executor.get(sourceIndex1) ? TypeBool::trueValue : TypeBool::falseValue);
 }
 
-TypeBase::Ref NotEqualOperation::execute(Executor& executor) const
+void NotEqualOperation::execute(Executor& executor) const
 {
-	return (*sourceOperation1->execute(executor)) == *sourceOperation2->execute(executor) ? TypeBool::falseValue : TypeBool::trueValue;
+	executor.set(destinationIndex, *executor.get(sourceIndex0) == *executor.get(sourceIndex1) ? TypeBool::falseValue : TypeBool::trueValue);
 }
 
-TypeBase::Ref LessOperation::execute(Executor& executor) const
+void LessOperation::execute(Executor& executor) const
 {
-	return (*sourceOperation1->execute(executor)) < *sourceOperation2->execute(executor) ? TypeBool::trueValue : TypeBool::falseValue;
+	executor.set(destinationIndex, *executor.get(sourceIndex0) < *executor.get(sourceIndex1) ? TypeBool::trueValue : TypeBool::falseValue);
 }
 
-TypeBase::Ref GreaterOperation::execute(Executor& executor) const
+void GreaterOperation::execute(Executor& executor) const
 {
-	return (*sourceOperation2->execute(executor)) < *sourceOperation1->execute(executor) ? TypeBool::trueValue : TypeBool::falseValue;
+	executor.set(destinationIndex, *executor.get(sourceIndex1) < *executor.get(sourceIndex0) ? TypeBool::trueValue : TypeBool::falseValue);
 }
 
-TypeBase::Ref LessEqualOperation::execute(Executor& executor) const
+void LessEqualOperation::execute(Executor& executor) const
 {
-	auto value1 = sourceOperation1->execute(executor);
-	auto value2 = sourceOperation2->execute(executor);
-	return *value1 < *value2 || *value1 == *value2  ? TypeBool::trueValue : TypeBool::falseValue;
+	executor.set(destinationIndex, *executor.get(sourceIndex1) < *executor.get(sourceIndex0) ? TypeBool::falseValue : TypeBool::trueValue);
 }
 
-TypeBase::Ref GreaterEqualOperation::execute(Executor& executor) const
+void GreaterEqualOperation::execute(Executor& executor) const
 {
-	return (*sourceOperation1->execute(executor)) < *sourceOperation2->execute(executor) ? TypeBool::falseValue : TypeBool::trueValue;
+	executor.set(destinationIndex, *executor.get(sourceIndex0) < *executor.get(sourceIndex1) ? TypeBool::falseValue : TypeBool::trueValue);
+}
+
+
+void IfOperation::execute(Executor& executor) const
+{
+	if (executor.get(index)->as<TypeBool::ValueType>())
+		executor.pushCode(std::make_unique<CodeBlock>(operations));
+}
+
+void IfOperation::serialize(Serializer& serializer)
+{
+	serializer.serialize(index, "index");
+	serializer.serialize(operations, "then");
+}
+
+void IfElseOperation::execute(Executor& executor) const
+{
+	executor.pushCode(std::make_unique<CodeBlock>(executor.get(index)->as<TypeBool::ValueType>() ? trueOperations : falseOperations));
+}
+
+void IfElseOperation::serialize(Serializer& serializer)
+{
+	serializer.serialize(index, "index");
+	serializer.serialize(trueOperations, "then");
+	serializer.serialize(falseOperations, "else");
+}
+
+
+class LoopBlock : public CodeBlock
+{
+public:
+	explicit LoopBlock(const std::vector<Operation::Ref>& code) : CodeBlock(code)
+	{}
+
+	const Operation& getOperation() override
+	{
+		size_t currOperation = currentOperation++;
+		currentOperation %= operations.size();
+		return *operations[currOperation];
+	}
+
+	BlockType getType() const override
+	{
+		return BlockType::Loop;
+	}
+};
+
+
+void LoopOperation::execute(Executor& executor) const
+{
+	executor.pushCode(std::make_unique<LoopBlock>(operations));
+}
+
+void LoopOperation::serialize(Serializer& serializer)
+{
+	serializer.serialize(operations, "code");
+}
+
+
+void BreakOperation::execute(Executor& executor) const
+{
+	std::unique_ptr<CodeBlock> loopBlock;
+	while (executor.sizeCode() > 0)
+	{
+		loopBlock = executor.popCode();
+		if (loopBlock->getType() == BlockType::Loop)
+			break;
+	}
+	executor.resize(loopBlock->getBottom());
 }
 
 }
