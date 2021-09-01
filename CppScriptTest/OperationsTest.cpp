@@ -1,4 +1,5 @@
 #include<gtest/gtest.h>
+#include <gmock/gmock.h>
 
 #include <CppScript/Operations.h>
 #include <CppScript/Serializer.h>
@@ -15,6 +16,7 @@ protected:
 		JsonLoader codeData{ code };
 		std::vector<Operation::Ref> operations;
 		codeData.serialize(operations, "code");
+		operations.push_back(std::make_unique<CodeBlock::BlockEndOperation>());
 		return operations;
 	}
 
@@ -27,10 +29,63 @@ protected:
 
 	void runOperations(Executor& executor, std::vector<Operation::Ref>& operations)
 	{
-		executor.pushCode(std::make_unique<CodeBlock>(operations));
+		executor.pushCode(operations);
 		executor.run();
 	}
 };
+
+class OperationMock : public Operation
+{
+public:
+	MOCK_METHOD(void, execute, (Executor&), (const, override));
+	MOCK_METHOD(void, serialize, (Serializer&), (override));
+	//MOCK_METHOD(std::vector<TypePlace>, getChangedTypes, (), (const, override));
+};
+
+TEST_F(OperationsFixture, MatchSignatureToSpecificationBasic)
+{
+	Operation::Specification opSpec{ {{&TypeFloat::id(), OperandSource::DirectValue}} };
+	EXPECT_TRUE(opSpec.matches({ "testOp", {{TypeFloat::id(), OperandSource::DirectValue}} }));
+	EXPECT_FALSE(opSpec.matches({ "testOp", {{TypeFloat::id(), OperandSource::MemoryValue}} }));
+	EXPECT_FALSE(opSpec.matches({ "testOp", {{TypeInt::id(), OperandSource::MemoryValue}} }));
+	EXPECT_FALSE(opSpec.matches({ "testOp", {} }));
+	EXPECT_FALSE(opSpec.matches({ "testOp", {{TypeFloat::id(), OperandSource::DirectValue}, {TypeInt::id(), OperandSource::MemoryValue}} }));
+}
+
+TEST_F(OperationsFixture, MatchSignatureToSpecificationVariadic)
+{
+	Operation::Specification opSpec{ {{&TypeInt::id(), OperandSource::MemoryValue, 1, 2}} };
+	EXPECT_TRUE(opSpec.matches({ "testOp", {{TypeInt::id(), OperandSource::MemoryValue}} }));
+	EXPECT_TRUE(opSpec.matches({ "testOp", {{TypeInt::id(), OperandSource::MemoryValue}, {TypeInt::id(), OperandSource::MemoryValue}} }));
+	EXPECT_FALSE(opSpec.matches({ "testOp", {{TypeFloat::id(), OperandSource::MemoryValue}} }));
+	EXPECT_FALSE(opSpec.matches({ "testOp", {{TypeInt::id(), OperandSource::MemoryValue}, {TypeInt::id(), OperandSource::DirectValue}} }));
+	EXPECT_FALSE(opSpec.matches({ "testOp", {{TypeInt::id(), OperandSource::MemoryValue}, {TypeInt::id(), OperandSource::MemoryValue}, {TypeInt::id(), OperandSource::MemoryValue}} }));
+}
+
+TEST_F(OperationsFixture, AddCustomOperations)
+{
+	Operation::Ref operation1 = std::make_unique<OperationMock>();
+	auto operation1Ptr = operation1.get();
+	Operation::add("TestOp1", {{{nullptr, OperandSource::DirectValue, 1, 3}},
+		[&](const std::vector<Operation::OperandType>&) { return std::move(operation1); } });
+
+	Operation::Ref operation2 = std::make_unique<OperationMock>();
+	auto operation2Ptr = operation2.get();
+	Operation::add("TestOp2", {{{ &TypeInt::id(), OperandSource::MemoryValue }},
+		[&](const std::vector<Operation::OperandType>&) { return std::move(operation2); } });
+
+	auto createdOperation = Operation::create({ "TestOp1", { { TypeFloat::id(), OperandSource::DirectValue } } });
+	EXPECT_EQ(createdOperation.get(), operation1Ptr);
+	operation1 = std::move(createdOperation);
+	EXPECT_FALSE(Operation::create({ "TestOp1", { { TypeFloat::id(), OperandSource::MemoryValue } } }));
+	EXPECT_EQ(Operation::create({ "TestOp1", { { TypeFloat::id(), OperandSource::DirectValue}, { TypeBool::id(), OperandSource::DirectValue } } }).get(), operation1Ptr);
+
+	EXPECT_FALSE(Operation::create({ "TestOp2", { { TypeInt::id(), OperandSource::DirectValue } } }));
+	EXPECT_EQ(Operation::create({ "TestOp2", { { TypeInt::id(), OperandSource::MemoryValue } } }).get(), operation2Ptr);
+	EXPECT_FALSE(Operation::create({ "TestOp2", { { TypeFloat::id(), OperandSource::MemoryValue } } }));
+
+	EXPECT_FALSE(Operation::create({ "NonExistingOp", { { TypeInt::id(), OperandSource::DirectValue } } }));
+}
 
 TEST_F(OperationsFixture, Value)
 {
@@ -251,7 +306,7 @@ TEST_F(OperationsFixture, IfElse_Condition)
 	EXPECT_EQ(executor.get(0)->as<TypeInt::ValueType>(), 145);
 }
 
-TEST_F(OperationsFixture, LoopOperation)
+/*TEST_F(OperationsFixture, LoopOperation)
 {
 	auto loopOperation = loadOperations(R"( { "code" : [ { "type" : "Loop", "code" : [ { "type" : "Add", "destIndex" : 1, "sourceIndex" : 3 },
 		{ "type" : "Greater", "destIndex" : 4, "sourceIndex0" : 1, "sourceIndex1" : 2 }, { "type" : "If", "index" : 4, "then" : [ { "type" : "Break" } ] },
@@ -265,7 +320,7 @@ TEST_F(OperationsFixture, LoopOperation)
 	runOperations(executor, loopOperation);
 	EXPECT_EQ(executor.get(0)->as<TypeInt::ValueType>(), 55);
 	EXPECT_EQ(executor.get(1)->as<TypeInt::ValueType>(), 11);
-}
+}*/
 
 
 long long fibonacci(size_t n)
@@ -281,7 +336,14 @@ long long fibonacci(size_t n)
 	return second;
 }
 
-TEST_F(OperationsFixture, Fibonacci)
+long long fibonacciRecurse(size_t n)
+{
+	if (n <= 1)
+		return n;
+	return fibonacciRecurse(n - 1) + fibonacciRecurse(n - 2);
+}
+
+/*TEST_F(OperationsFixture, Fibonacci)
 {
 	auto fibonacciOperation = loadOperations(R"( { "code" : [ { "type" : "CloneValue", "destIndex" : 1, "data" : 0 }, { "type" : "CloneValue", "destIndex" : 2, "data" : 1 },
 		{ "type" : "CloneValue", "destIndex" : 3, "data" : 1 }, { "type" : "Value", "destIndex" : 4, "data" : 1 },
@@ -294,13 +356,162 @@ TEST_F(OperationsFixture, Fibonacci)
 		runOperations(executor, fibonacciOperation);
 
 	EXPECT_EQ(executor.get(2)->as<TypeInt::ValueType>(), fibonacci(90));
+}*/
+
+TEST_F(OperationsFixture, FibonacciJump)
+{
+	auto fibonacciOperation = loadOperations(R"( { "code" : [ { "type" : "CloneValue", "destIndex" : 1, "data" : 0 }, { "type" : "CloneValue", "destIndex" : 2, "data" : 1 },
+		{ "type" : "CloneValue", "destIndex" : 3, "data" : 1 }, { "type" : "Value", "destIndex" : 4, "data" : 1 },
+		{ "type" : "Add", "destIndex" : 1, "sourceIndex" : 2 }, { "type" : "Swap", "index0" : 1, "index1" : 2 },
+		{ "type" : "Add", "destIndex" : 3, "sourceIndex" : 4 },	{ "type" : "Greater", "destIndex" : 5, "sourceIndex0" : 0, "sourceIndex1" : 3 },
+		{ "type" : "JumpIf", "index" : 5, "to" : 4 } ] } )"_json);
+	auto executor = getExecutor(6);
+	executor.set(0, TypeInt::create(90));
+	for (size_t i = 0; i < 10000; ++i)
+		runOperations(executor, fibonacciOperation);
+
+	EXPECT_EQ(executor.get(2)->as<TypeInt::ValueType>(), fibonacci(90));
 }
 
-TEST_F(OperationsFixture, Fibonacci2)
+TEST_F(OperationsFixture, FibonacciJumpIt)
 {
-	long long rslt;
+	auto fibonacciOperation = loadOperations(R"( { "code" : [ { "type" : "CloneValue", "destIndex" : 1, "data" : 0 }, { "type" : "CloneValue", "destIndex" : 2, "data" : 1 },
+		{ "type" : "CloneValue", "destIndex" : 3, "data" : 1 }, { "type" : "Value", "destIndex" : 4, "data" : 1 },
+		{ "type" : "Add", "destIndex" : 1, "sourceIndex" : 2 }, { "type" : "Swap", "index0" : 1, "index1" : 2 },
+		{ "type" : "Add", "destIndex" : 3, "sourceIndex" : 4 },	{ "type" : "Greater", "destIndex" : 5, "sourceIndex0" : 0, "sourceIndex1" : 3 },
+		{ "type" : "JumpIf", "index" : 5, "to" : 4 } ] } )"_json);
+	auto executor = getExecutor(6);
+	executor.set(0, TypeInt::create(90));
 	for (size_t i = 0; i < 10000; ++i)
-		rslt = fibonacci(90);
+	{
+		executor.pushCode(fibonacciOperation);
+		executor.runIt();
+	}
 
-	EXPECT_EQ(rslt, fibonacci(90));
+	EXPECT_EQ(executor.get(2)->as<TypeInt::ValueType>(), fibonacci(90));
+}
+
+TEST_F(OperationsFixture, FibonacciDirectExec)
+{
+	auto fibonacciOperation = loadOperations(R"( { "code" : [ { "type" : "CloneValue", "destIndex" : 1, "data" : 0 }, { "type" : "CloneValue", "destIndex" : 2, "data" : 1 },
+		{ "type" : "CloneValue", "destIndex" : 3, "data" : 1 }, { "type" : "Value", "destIndex" : 4, "data" : 1 },
+		{ "type" : "Add", "destIndex" : 1, "sourceIndex" : 2 }, { "type" : "Swap", "index0" : 1, "index1" : 2 },
+		{ "type" : "Add", "destIndex" : 3, "sourceIndex" : 4 },	{ "type" : "Greater", "destIndex" : 5, "sourceIndex0" : 0, "sourceIndex1" : 3 },
+		{ "type" : "JumpIf", "index" : 5, "to" : 4 } ] } )"_json);
+	auto executor = getExecutor(6);
+	executor.set(0, TypeInt::create(90));
+	executor.pushCode(fibonacciOperation);
+	for (size_t i = 0; i < 10000; ++i)
+	{
+		executor.runFib();
+	}
+
+	EXPECT_EQ(executor.get(2)->as<TypeInt::ValueType>(), fibonacci(90));
+}
+
+TEST_F(OperationsFixture, FibonacciDirectExecNC)
+{
+	auto fibonacciOperation = loadOperations(R"( { "code" : [ { "type" : "CloneValue", "destIndex" : 1, "data" : 0 }, { "type" : "CloneValue", "destIndex" : 2, "data" : 1 },
+		{ "type" : "CloneValue", "destIndex" : 3, "data" : 1 }, { "type" : "Value", "destIndex" : 4, "data" : 1 },
+		{ "type" : "Add", "destIndex" : 1, "sourceIndex" : 2 }, { "type" : "Swap", "index0" : 1, "index1" : 2 },
+		{ "type" : "Add", "destIndex" : 3, "sourceIndex" : 4 },	{ "type" : "Greater", "destIndex" : 5, "sourceIndex0" : 0, "sourceIndex1" : 3 },
+		{ "type" : "JumpIf", "index" : 5, "to" : 4 } ] } )"_json);
+	auto executor = getExecutor(6);
+	executor.set(0, TypeInt::create(90));
+	executor.pushCode(fibonacciOperation);
+	for (size_t i = 0; i < 10000; ++i)
+	{
+		executor.runFibNC();
+	}
+
+	EXPECT_EQ(executor.get(2)->as<TypeInt::ValueType>(), fibonacci(90));
+}
+
+TEST_F(OperationsFixture, FibonacciDirectExecNOP)
+{
+	auto fibonacciOperation = loadOperations(R"( { "code" : [ { "type" : "CloneValue", "destIndex" : 1, "data" : 0 }, { "type" : "CloneValue", "destIndex" : 2, "data" : 1 },
+		{ "type" : "CloneValue", "destIndex" : 3, "data" : 1 }, { "type" : "Value", "destIndex" : 4, "data" : 1 },
+		{ "type" : "Add", "destIndex" : 1, "sourceIndex" : 2 }, { "type" : "Swap", "index0" : 1, "index1" : 2 },
+		{ "type" : "Add", "destIndex" : 3, "sourceIndex" : 4 },	{ "type" : "Greater", "destIndex" : 5, "sourceIndex0" : 0, "sourceIndex1" : 3 },
+		{ "type" : "JumpIf", "index" : 5, "to" : 4 } ] } )"_json);
+	auto executor = getExecutor(6);
+	executor.set(0, TypeInt::create(90));
+	for (size_t i = 0; i < 10000; ++i)
+	{
+		executor.runFibNOP();
+	}
+
+	EXPECT_EQ(executor.get(2)->as<TypeInt::ValueType>(), fibonacci(90));
+}
+
+TEST_F(OperationsFixture, FibonacciDirectExecNOP2)
+{
+	auto fibonacciOperation = loadOperations(R"( { "code" : [ { "type" : "CloneValue", "destIndex" : 1, "data" : 0 }, { "type" : "CloneValue", "destIndex" : 2, "data" : 1 },
+		{ "type" : "CloneValue", "destIndex" : 3, "data" : 1 }, { "type" : "Value", "destIndex" : 4, "data" : 1 },
+		{ "type" : "Add", "destIndex" : 1, "sourceIndex" : 2 }, { "type" : "Swap", "index0" : 1, "index1" : 2 },
+		{ "type" : "Add", "destIndex" : 3, "sourceIndex" : 4 },	{ "type" : "Greater", "destIndex" : 5, "sourceIndex0" : 0, "sourceIndex1" : 3 },
+		{ "type" : "JumpIf", "index" : 5, "to" : 4 } ] } )"_json);
+	auto executor = getExecutor(6);
+	executor.set(0, TypeInt::create(90));
+	for (size_t i = 0; i < 10000; ++i)
+	{
+		executor.runFibNOP2();
+	}
+
+	EXPECT_EQ(executor.get(2)->as<TypeInt::ValueType>(), fibonacci(90));
+}
+
+TEST_F(OperationsFixture, FibonacciDirectExecNOP3)
+{
+	auto fibonacciOperation = loadOperations(R"( { "code" : [ { "type" : "CloneValue", "destIndex" : 1, "data" : 0 }, { "type" : "CloneValue", "destIndex" : 2, "data" : 1 },
+		{ "type" : "CloneValue", "destIndex" : 3, "data" : 1 }, { "type" : "Value", "destIndex" : 4, "data" : 1 },
+		{ "type" : "Add", "destIndex" : 1, "sourceIndex" : 2 }, { "type" : "Swap", "index0" : 1, "index1" : 2 },
+		{ "type" : "Add", "destIndex" : 3, "sourceIndex" : 4 },	{ "type" : "Greater", "destIndex" : 5, "sourceIndex0" : 0, "sourceIndex1" : 3 },
+		{ "type" : "JumpIf", "index" : 5, "to" : 4 } ] } )"_json);
+	auto executor = getExecutor(6);
+	executor.set(0, TypeInt::create(90));
+	for (size_t i = 0; i < 10000; ++i)
+	{
+		executor.runFibNOP3();
+	}
+
+	EXPECT_EQ(executor.get(2)->as<TypeInt::ValueType>(), fibonacci(90));
+}
+
+
+/*TEST_F(OperationsFixture, NOFibonacci)
+{
+	auto fibonacciOperation = loadOperations(R"( { "code" : [ { "type" : "CloneValue", "destIndex" : 1, "sourceType" : "int", "value" : 0 },
+		{ "type" : "CloneValue", "destIndex" : 2, "sourceType" : "int", "value" : 1 },
+		{ "type" : "Add", "destType" : "int", "destIndex" : 0, "sourceType" : "int", "value" : -1 },
+		{ "type" : "Add", "destType" : "int", "destIndex" : 1, "sourceType" : "int", "index" : 2 }, { "type" : "Swap", "index0" : 1, "index1" : 2 },
+		{ "type" : "Add", "destType" : "int", "destIndex" : 0, "sourceType" : "int", "value" : -1 },
+		{ "type" : "JumpPositive", "sourceType" : "int", "index" : 0, "to" : 3 } ] } )"_json);
+	auto executor = getExecutor(6);
+	executor.set(0, TypeInt::create(90));
+	for (size_t i = 0; i < 10000; ++i)
+	{
+		executor.pushCode(fibonacciOperation);
+		executor.runIt();
+	}
+
+	EXPECT_EQ(executor.get(2)->as<TypeInt::ValueType>(), fibonacci(90));
+}*/
+
+TEST_F(OperationsFixture, FibonacciCpp)
+{
+	std::vector<long long> rslt;
+	for (size_t i = 0; i < 10000; ++i)
+		rslt.push_back(fibonacci(90));
+
+	EXPECT_EQ(rslt[0], fibonacci(90));
+}
+
+TEST_F(OperationsFixture, FibonacciRecurseCpp)
+{
+	std::vector<long long> rslt;
+	for (size_t i = 0; i < 1; ++i)
+		rslt.push_back(fibonacciRecurse(40));
+
+	EXPECT_EQ(rslt[0], fibonacci(40));
 }

@@ -21,10 +21,9 @@ TypeBase::Ref TypeOperations<IntValue>::clone() const
 	return Type<IntValue>::create(getThis().get());
 }
 
-TypeBase::Ref TypeOperations<IntValue>::operator+=(const TypeBase& obj)
+void TypeOperations<IntValue>::operator+=(const TypeBase& obj)
 {
 	getThis().get() += obj.as<IntValue>();
-	return shared_from_this();
 }
 
 bool TypeOperations<IntValue>::operator==(const TypeBase& obj) const
@@ -64,10 +63,9 @@ static FloatValue getFloatOrIntAsFloat(const TypeBase& obj)
 	return obj.as<FloatValue>();
 }
 
-TypeBase::Ref TypeOperations<FloatValue>::operator+=(const TypeBase& obj)
+void TypeOperations<FloatValue>::operator+=(const TypeBase& obj)
 {
 	getThis().get() += getFloatOrIntAsFloat(obj);
-	return shared_from_this();
 }
 
 bool TypeOperations<FloatValue>::operator==(const TypeBase& obj) const

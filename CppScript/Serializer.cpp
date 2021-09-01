@@ -74,4 +74,58 @@ void JsonLoader::serialize(std::string& value, const char* name)
 	value = operationData[name].get<std::string>();
 }
 
+
+/*NewJsonLoader::NewJsonLoader(const Json& data) : operationData(data)
+{}
+
+void NewJsonLoader::serialize(Operation::Ref& obj)
+{
+	auto opType = operationData["type"].get<std::string>();
+	auto srcType0 = operationData.find("sourceType");
+	auto srcType1 = operationData.find("sourceType2");
+	obj = Operation::create(operationData["type"].get<std::string>());
+	if (obj)
+	{
+		obj->serialize(*this);
+	}
+}
+
+void JsonLoader::serialize(std::vector<Operation::Ref>& objs, const char* name)
+{
+	const auto& data = operationData[name];
+	if (!data.is_array())
+		return;
+	for (const auto& objData : data)
+	{
+		JsonLoader opLoader{ objData };
+		Operation::Ref obj;
+		opLoader.serialize(obj);
+		objs.push_back(std::move(obj));
+	}
+}
+
+void JsonLoader::serialize(TypeBase::Ref& value, const char* name)
+{
+	const auto& data = operationData[name];
+	if (data.is_number_integer())
+		value = TypeInt::create(data.get<TypeInt::ValueType>());
+	else if (data.is_number_float())
+		value = TypeFloat::create(data.get<TypeFloat::ValueType>());
+	else if (data.is_boolean())
+		value = data.get<bool>() ? TypeBool::trueValue : TypeBool::falseValue;
+	else
+		throw NotBaseType{ data.type_name() };
+}
+
+void JsonLoader::serialize(IntValue& value, const char* name)
+{
+	value = operationData[name].get<IntValue>();
+}
+
+void JsonLoader::serialize(std::string& value, const char* name)
+{
+	value = operationData[name].get<std::string>();
+}*/
+
+
 }

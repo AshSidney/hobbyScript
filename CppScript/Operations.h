@@ -1,7 +1,11 @@
 #pragma once
 
 #include <CppScript/Types.h>
+#include <memory>
 #include <vector>
+#include <variant>
+#include <functional>
+#include <unordered_map>
 
 
 namespace CppScript
@@ -28,13 +32,28 @@ namespace CppScript
 		LessEqual,
 		GreaterEqual,
 
+		Jump,
+		JumpIf,
+
 		If,
 		IfElse,
 		Loop,
 		Break,
 
+		BlockEnd,
 		Last
 	};
+
+	enum class OperandSource
+	{
+		Invalid = 0,
+		DirectValue = 1,
+		MemoryValue = 2
+	};
+
+	OperandSource operator&(OperandSource first, OperandSource second);
+	OperandSource operator|(OperandSource first, OperandSource second);
+
 
 	class Operation
 	{
@@ -42,13 +61,69 @@ namespace CppScript
 		virtual ~Operation() = default;
 
 		virtual void execute(Executor& executor) const = 0;
+
 		virtual void serialize(Serializer& serializer) = 0;
 
 		using Ref = std::unique_ptr<Operation>;
+
+		struct OperandType
+		{
+			const TypeIdBase& typeId;
+			OperandSource source{ OperandSource::Invalid };
+		};
+
+		struct Signature
+		{
+			std::string operation;
+			std::vector<OperandType> operands;
+		};
+
+		static Ref create(const Signature& opSign);
+
+
+		struct Specification
+		{
+			struct VariadicTypeOperand
+			{
+				const TypeIdBase* typeId;
+				OperandSource source{ OperandSource::Invalid };
+				size_t minCount{ 1 };
+				size_t maxCount{ 1 };
+			};
+			std::vector<VariadicTypeOperand> operands;
+
+			std::function<Ref(const std::vector<OperandType>&)> creator;
+
+			bool matches(const Signature& opSign) const;
+		};
+
+		static void add(const std::string& operation, const Specification& specification);
+
+
+		/*struct TypePlace
+		{
+			const TypeIdBase& typeId;
+			size_t index;
+		};
+
+		virtual std::vector<TypePlace> getChangedTypes() const
+		{
+			return {};
+		}*/
+
+		//deprecated
 		static Ref create(OperationType opType);
 		static Ref create(const std::string& opType);
 		static const std::string& getName(OperationType opType);
+
+		OperationType opType;
+		static OperationType getOperationType(const std::string& opName);
+
+	private:
+		static std::unordered_multimap<std::string, Specification> creators;
 	};
+
+
 
 	template <OperationType T> class OperationTypeBase
 	{
@@ -70,7 +145,7 @@ namespace CppScript
 	public:
 		void serialize(Serializer& serializer) override;
 
-	protected:
+	//protected:
 		IntValue destinationIndex{ 0 };
 	};
 
@@ -79,7 +154,7 @@ namespace CppScript
 	public:
 		void serialize(Serializer& serializer) override;
 
-	protected:
+	//protected:
 		TypeBase::Ref value;
 	};
 
@@ -87,12 +162,22 @@ namespace CppScript
 	{
 	public:
 		void execute(Executor& executor) const override;
+		void serialize(Serializer& serializer) override
+		{
+			DirectValueOperationBase::serialize(serializer);
+			opType = getType();
+		}
 	};
 
 	class CloneValueOperation : public DirectValueOperationBase, public OperationTypeBase<OperationType::CloneValue>
 	{
 	public:
 		void execute(Executor& executor) const override;
+		void serialize(Serializer& serializer) override
+		{
+			DirectValueOperationBase::serialize(serializer);
+			opType = getType();
+		}
 	};
 
 
@@ -101,7 +186,7 @@ namespace CppScript
 	public:
 		void serialize(Serializer& serializer) override;
 
-	protected:
+	//protected:
 		IntValue sourceIndex{ 0 };
 	};
 
@@ -109,12 +194,22 @@ namespace CppScript
 	{
 	public:
 		void execute(Executor& executor) const override;
+		void serialize(Serializer& serializer) override
+		{
+			LocalValueOperationBase::serialize(serializer);
+			opType = getType();
+		}
 	};
 
 	class CloneLocalValueOperation : public LocalValueOperationBase, public OperationTypeBase<OperationType::CloneLocalValue>
 	{
 	public:
 		void execute(Executor& executor) const override;
+		void serialize(Serializer& serializer) override
+		{
+			LocalValueOperationBase::serialize(serializer);
+			opType = getType();
+		}
 	};
 
 
@@ -124,7 +219,7 @@ namespace CppScript
 		void execute(Executor& executor) const override;
 		void serialize(Serializer& serializer) override;
 
-	protected:
+	//protected:
 		IntValue index0{ 0 };
 		IntValue index1{ 0 };
 	};
@@ -135,7 +230,7 @@ namespace CppScript
 	public:
 		void serialize(Serializer& serializer) override;
 
-	protected:
+	//protected:
 		IntValue destinationIndex{ 0 };
 		IntValue sourceIndex{ 0 };
 	};
@@ -145,6 +240,11 @@ namespace CppScript
 	{
 	protected:
 		void execute(Executor& executor) const override;
+		void serialize(Serializer& serializer) override
+		{
+			AccumulationOperation::serialize(serializer);
+			opType = getType();
+		}
 	};
 
 
@@ -153,7 +253,7 @@ namespace CppScript
 	public:
 		virtual void serialize(Serializer& serializer) override;
 
-	protected:
+	//protected:
 		IntValue destinationIndex{ 0 };
 		IntValue sourceIndex0{ 0 };
 		IntValue sourceIndex1{ 0 };
@@ -162,38 +262,90 @@ namespace CppScript
 
 	class EqualOperation : public ComparisonOperation, public OperationTypeBase<OperationType::Equal>
 	{
-	protected:
+	public:
 		void execute(Executor& executor) const override;
+		void serialize(Serializer& serializer) override
+		{
+			ComparisonOperation::serialize(serializer);
+			opType = getType();
+		}
 	};
 
 	class NotEqualOperation : public ComparisonOperation, public OperationTypeBase<OperationType::NotEqual>
 	{
-	protected:
+	public:
 		void execute(Executor& executor) const override;
+		void serialize(Serializer& serializer) override
+		{
+			ComparisonOperation::serialize(serializer);
+			opType = getType();
+		}
 	};
 
 	class LessOperation : public ComparisonOperation, public OperationTypeBase<OperationType::Less>
 	{
-	protected:
+	public:
 		void execute(Executor& executor) const override;
+		void serialize(Serializer& serializer) override
+		{
+			ComparisonOperation::serialize(serializer);
+			opType = getType();
+		}
 	};
 
 	class GreaterOperation : public ComparisonOperation, public OperationTypeBase<OperationType::Greater>
 	{
-	protected:
+	public:
 		void execute(Executor& executor) const override;
+		void serialize(Serializer& serializer) override
+		{
+			ComparisonOperation::serialize(serializer);
+			opType = getType();
+		}
 	};
 
 	class LessEqualOperation : public ComparisonOperation, public OperationTypeBase<OperationType::LessEqual>
 	{
-	protected:
+	public:
 		void execute(Executor& executor) const override;
+		void serialize(Serializer& serializer) override
+		{
+			ComparisonOperation::serialize(serializer);
+			opType = getType();
+		}
 	};
 
 	class GreaterEqualOperation : public ComparisonOperation, public OperationTypeBase<OperationType::GreaterEqual>
 	{
-	protected:
+	public:
 		void execute(Executor& executor) const override;
+		void serialize(Serializer& serializer) override
+		{
+			ComparisonOperation::serialize(serializer);
+			opType = getType();
+		}
+	};
+
+
+	class JumpOperation : public Operation, public OperationTypeBase<OperationType::Jump>
+	{
+	public:
+		void execute(Executor& executor) const override;
+		void serialize(Serializer& serializer) override;
+
+	//protected:
+		IntValue nextOperation{ 0 };
+	};
+
+	class JumpIfOperation : public Operation, public OperationTypeBase<OperationType::JumpIf>
+	{
+	public:
+		void execute(Executor& executor) const override;
+		void serialize(Serializer& serializer) override;
+
+	//protected:
+		IntValue index{ 0 };
+		IntValue nextOperation{ 0 };
 	};
 
 
@@ -221,7 +373,7 @@ namespace CppScript
 	};
 
 
-	class LoopOperation : public Operation, public OperationTypeBase<OperationType::Loop>
+	/*class LoopOperation : public Operation, public OperationTypeBase<OperationType::Loop>
 	{
 	public:
 		void execute(Executor& executor) const override;
@@ -237,6 +389,6 @@ namespace CppScript
 	public:
 		virtual void execute(Executor& executor) const override;
 		virtual void serialize(Serializer& serializer) override {}
-	};
+	};*/
 
 }

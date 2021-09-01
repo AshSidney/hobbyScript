@@ -39,4 +39,24 @@ namespace CppScript
 	private:
 		const Json& operationData;
 	};
+
+
+	/*class NewJsonLoader : public Serializer
+	{
+	public:
+		NewJsonLoader(const Json& data);
+
+		void serialize(std::vector<Operation::Ref>& objs, const char* name) override;
+		void serialize(Operation::Ref& obj) override;
+
+		void serialize(TypeBase::Ref& value, const char* name) override;
+		void serialize(IntValue& value, const char* name) override;
+		void serialize(std::string& value, const char* name) override;
+
+	protected:
+		//virtual const Json& getData();
+
+	private:
+		const Json& operationData;
+	};*/
 }

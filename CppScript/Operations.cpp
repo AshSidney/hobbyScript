@@ -4,8 +4,108 @@
 #include <CppScript/BasicTypes.h>
 #include <array>
 
+
 namespace CppScript
 {
+
+/*bool operator==(const Operation::OperandType& left, const Operation::OperandType& right)
+{
+	return left.typeId == right.typeId && left.source == right.source;
+}
+
+bool operator!=(const Operation::OperandType& left, const Operation::OperandType& right)
+{
+	return !(left == right);
+}*/
+
+OperandSource operator&(OperandSource first, OperandSource second)
+{
+	return OperandSource(size_t(first) & size_t(second));
+}
+
+OperandSource operator|(OperandSource first, OperandSource second)
+{
+	return OperandSource(size_t(first) | size_t(second));
+}
+
+struct OperandMatcher
+{
+	OperandMatcher(const std::vector<Operation::Specification::VariadicTypeOperand>& operands)
+		: currentOperand(operands.cbegin()), endOperand(operands.cend())
+	{}
+
+	enum class Result{Matched, Next, Failed};
+
+	bool match(const Operation::OperandType& opType)
+	{
+		Result result{ Result::Next };
+		while (result == Result::Next)
+			result = matchCurrent(opType);
+		return result == Result::Matched;
+	}
+
+	bool isFinished() const
+	{
+		return currentOperand == endOperand || std::next(currentOperand) == endOperand
+			&& currentOperand->minCount <= currentCount && currentOperand->maxCount >= currentCount;
+	}
+
+	Result matchCurrent(const Operation::OperandType& opType)
+	{
+		if (currentOperand == endOperand)
+			return Result::Failed;
+		if ((currentOperand->typeId == nullptr || *currentOperand->typeId == opType.typeId)
+			&& (currentOperand->source & opType.source) != OperandSource::Invalid)
+		{
+			if (currentOperand->maxCount > currentCount)
+			{
+				++currentCount;
+				return Result::Matched;
+			}
+		}
+		else if (currentOperand->minCount < currentCount)
+				return Result::Failed;
+		++currentOperand;
+		currentCount = 0;
+		return Result::Next;
+	}
+
+	decltype(Operation::Specification::operands)::const_iterator currentOperand;
+	const decltype(Operation::Specification::operands)::const_iterator endOperand;
+	size_t currentCount{ 0 };
+};
+
+bool Operation::Specification::matches(const Operation::Signature& opSign) const
+{
+	OperandMatcher matcher{ operands };
+	for (const auto& operand : opSign.operands)
+	{
+		if (!matcher.match(operand))
+			return false;
+	}
+	return matcher.isFinished();
+}
+
+std::unordered_multimap<std::string, Operation::Specification> Operation::creators;
+
+Operation::Ref Operation::create(const Operation::Signature& opSign)
+{
+	auto suitableCreators = creators.equal_range(opSign.operation);
+	for (auto creator = suitableCreators.first; creator != suitableCreators.second; ++creator)
+	{
+		if (!creator->second.matches(opSign))
+			continue;
+		auto operation = creator->second.creator(opSign.operands);
+		if (operation)
+			return operation;
+	}
+	return {};
+}
+
+void Operation::add(const std::string& operation, const Operation::Specification& specification)
+{
+	creators.emplace(operation, specification);
+}
 
 class OperationCreator
 {
@@ -59,10 +159,12 @@ OpCreator<LessOperation> lessOp{ "Less" };
 OpCreator<GreaterOperation> greaterOp{ "Greater" };
 OpCreator<LessEqualOperation> lessEqualOp{ "LessEqual" };
 OpCreator<GreaterEqualOperation> greaterEqualOp{ "GreaterEqual" };
+OpCreator<JumpOperation> jumpOp{ "Jump" };
+OpCreator<JumpIfOperation> jumpIfOp{ "JumpIf" };
 OpCreator<IfOperation> ifOp{ "If" };
 OpCreator<IfElseOperation> ifElseOp{ "IfElse" };
-OpCreator<LoopOperation> loopOp{ "Loop" };
-OpCreator<BreakOperation> breakOp{ "Break" };
+//OpCreator<LoopOperation> loopOp{ "Loop" };
+//OpCreator<BreakOperation> breakOp{ "Break" };
 
 
 Operation::Ref Operation::create(OperationType opType)
@@ -134,6 +236,7 @@ void SwapOperation::serialize(Serializer& serializer)
 {
 	serializer.serialize(index0, "index0");
 	serializer.serialize(index1, "index1");
+	opType = getType();
 }
 
 
@@ -189,21 +292,48 @@ void GreaterEqualOperation::execute(Executor& executor) const
 }
 
 
+void JumpOperation::execute(Executor& executor) const
+{
+	executor.getCode().setNextOperation(nextOperation);
+}
+
+void JumpOperation::serialize(Serializer& serializer)
+{
+	serializer.serialize(nextOperation, "to");
+	opType = getType();
+}
+
+void JumpIfOperation::execute(Executor& executor) const
+{
+	if (executor.get(index)->as<TypeBool::ValueType>())
+		executor.getCode().setNextOperation(nextOperation);
+}
+
+void JumpIfOperation::serialize(Serializer& serializer)
+{
+	serializer.serialize(index, "index");
+	serializer.serialize(nextOperation, "to");
+	opType = getType();
+}
+
+
 void IfOperation::execute(Executor& executor) const
 {
 	if (executor.get(index)->as<TypeBool::ValueType>())
-		executor.pushCode(std::make_unique<CodeBlock>(operations));
+		executor.pushCode(operations);
 }
 
 void IfOperation::serialize(Serializer& serializer)
 {
 	serializer.serialize(index, "index");
 	serializer.serialize(operations, "then");
+	operations.push_back(std::make_unique<CodeBlock::BlockEndOperation>());
+	opType = getType();
 }
 
 void IfElseOperation::execute(Executor& executor) const
 {
-	executor.pushCode(std::make_unique<CodeBlock>(executor.get(index)->as<TypeBool::ValueType>() ? trueOperations : falseOperations));
+	executor.pushCode(executor.get(index)->as<TypeBool::ValueType>() ? trueOperations : falseOperations);
 }
 
 void IfElseOperation::serialize(Serializer& serializer)
@@ -211,10 +341,13 @@ void IfElseOperation::serialize(Serializer& serializer)
 	serializer.serialize(index, "index");
 	serializer.serialize(trueOperations, "then");
 	serializer.serialize(falseOperations, "else");
+	trueOperations.push_back(std::make_unique<CodeBlock::BlockEndOperation>());
+	falseOperations.push_back(std::make_unique<CodeBlock::BlockEndOperation>());
+	opType = getType();
 }
 
 
-class LoopBlock : public CodeBlock
+/*class LoopBlock : public CodeBlock
 {
 public:
 	explicit LoopBlock(const std::vector<Operation::Ref>& code) : CodeBlock(code)
@@ -255,6 +388,6 @@ void BreakOperation::execute(Executor& executor) const
 			break;
 	}
 	executor.resize(loopBlock->getBottom());
-}
+}*/
 
 }

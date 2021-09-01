@@ -10,7 +10,7 @@ namespace CppScript
 	{
 	public:
 		virtual TypeBase::Ref clone() const override;
-		virtual TypeBase::Ref operator+=(const TypeBase& obj) override;
+		virtual void operator+=(const TypeBase& obj) override;
 		virtual bool operator==(const TypeBase& obj) const override;
 		virtual bool operator<(const TypeBase& obj) const override;
 
@@ -23,7 +23,7 @@ namespace CppScript
 	{
 	public:
 		virtual TypeBase::Ref clone() const override;
-		virtual TypeBase::Ref operator+=(const TypeBase& obj) override;
+		virtual void operator+=(const TypeBase& obj) override;
 		virtual bool operator==(const TypeBase& obj) const override;
 		virtual bool operator<(const TypeBase& obj) const override;
 
@@ -83,7 +83,12 @@ namespace CppScript
 		return Type<T>::id().get(*this);
 	}
 
-	template<typename T> std::enable_if_t<std::numeric_limits<T>::is_integer && !std::is_same_v<T, BoolValue>, T> TypeBase::as() const
+	template<typename T> std::enable_if_t<std::is_same_v<T, IntValue> || std::is_same_v<T, FloatValue>, T> TypeBase::as() const
+	{
+		return Type<T>::id().get(*this);
+	}
+
+	template<typename T> std::enable_if_t<std::numeric_limits<T>::is_integer && !std::is_same_v<T, IntValue> && !std::is_same_v<T, BoolValue>, T> TypeBase::as() const
 	{
 		const auto& value = TypeInt::id().get(*this);
 		if (value < std::numeric_limits<T>::lowest() || value > std::numeric_limits<T>::max())
@@ -91,7 +96,7 @@ namespace CppScript
 		return T(value);
 	}
 
-	template<typename T> std::enable_if_t<std::is_floating_point_v<T>, T> TypeBase::as() const
+	template<typename T> std::enable_if_t<std::is_floating_point_v<T> && !std::is_same_v<T, FloatValue>, T> TypeBase::as() const
 	{
 		const auto& value = TypeFloat::id().get(*this);
 		if (value < std::numeric_limits<T>::lowest() || value > std::numeric_limits<T>::max())
