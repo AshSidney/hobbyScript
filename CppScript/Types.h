@@ -35,6 +35,8 @@ namespace CppScript
 		template<typename T> std::enable_if_t<std::is_same_v<T, BoolValue>, T> as() const;
 
 		virtual TypeBase::Ref clone() const;
+
+		//deprecated
 		virtual void operator+=(const TypeBase& obj);
 
 		virtual bool operator==(const TypeBase& obj) const;
@@ -105,6 +107,7 @@ namespace CppScript
 	};
 
 
+	// deprecated
 	template <typename T> class TypeOperations : public TypeBase
 	{};
 

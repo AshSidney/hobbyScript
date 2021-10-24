@@ -4,19 +4,68 @@
 namespace CppScript
 {
 
-void Executor::run()
+void Executor::run(const Operation& operation)
+{
+	operation.execute(*this);
+}
+
+void Executor::add(OperationModule&& opModule)
+{
+	modules.push_back(std::move(opModule));
+	set(&modules.back());
+}
+
+void Executor::push(size_t size)
+{
+	const auto currentSize = localMemory.size();
+	localStack.push_back({ currentSize, currentModule });
+	localMemory.resize(currentSize + size);
+	dataMemories[MemoryPlace::Type::Local] = localMemory.data() + currentSize;
+}
+
+void Executor::pop()
+{
+	set(localStack.back().opModule);
+	localMemory.resize(localStack.back().previousSize);
+	localStack.pop_back();
+	dataMemories[MemoryPlace::Type::Local] = localMemory.data() + localStack.back().previousSize;
+}
+
+TypeBase::Ref& Executor::get(const MemoryPlace& place)
+{
+	return dataMemories[place.memoryType][place.memoryIndex];
+}
+
+void Executor::set(const MemoryPlace& place, TypeBase::Ref value)
+{
+	get(place) = std::move(value);
+}
+
+void Executor::swap(const MemoryPlace& place0, const MemoryPlace& place1)
+{
+	std::swap(get(place0), get(place1));
+}
+
+void Executor::set(OperationModule* opModule)
+{
+	currentModule = opModule;
+	dataMemories[MemoryPlace::Type::Module] = currentModule != nullptr ? currentModule->data.data() : nullptr;
+}
+
+
+void ExecutorOld::run()
 {
 	while (currentCode != nullptr)
 		currentCode->getOperation().execute(*this);
 }
 
-void Executor::runIt()
+void ExecutorOld::runIt()
 {
 	while (currentCode != nullptr)
 		currentCode->getOperationIt().execute(*this);
 }
 
-void Executor::runFib()
+void ExecutorOld::runFib()
 {
 	currentCode->operations[0]->execute(*this);
 	currentCode->operations[1]->execute(*this);
@@ -31,7 +80,7 @@ void Executor::runFib()
 	} 	while (get(5)->as<TypeBool::ValueType>());
 }
 
-void Executor::runFibNC()
+void ExecutorOld::runFibNC()
 {
 	const auto& set0 = static_cast<const CloneValueOperation&>(*currentCode->operations[0]);
 	set(set0.destinationIndex, set0.value->clone());
@@ -43,18 +92,18 @@ void Executor::runFibNC()
 	set(set3.destinationIndex, set3.value);
 	do
 	{
-		const auto& add0 = static_cast<const AddOperation&>(*currentCode->operations[4]);
+		const auto& add0 = static_cast<const AddOperationOld&>(*currentCode->operations[4]);
 		*get(add0.destinationIndex) += *get(add0.sourceIndex);
 		const auto& swap0 = static_cast<const SwapOperation&>(*currentCode->operations[5]);
 		std::swap(get(swap0.index0), get(swap0.index1));
-		const auto& add1 = static_cast<const AddOperation&>(*currentCode->operations[6]);
+		const auto& add1 = static_cast<const AddOperationOld&>(*currentCode->operations[6]);
 		*get(add1.destinationIndex) += *get(add1.sourceIndex);
 		const auto& grt0 = static_cast<const GreaterOperation&>(*currentCode->operations[7]);
 		set(grt0.destinationIndex, *get(grt0.sourceIndex1) < *get(grt0.sourceIndex0) ? TypeBool::trueValue : TypeBool::falseValue);
 	} 	while (get(5)->as<TypeBool::ValueType>());
 }
 
-void Executor::runFibNOP()
+void ExecutorOld::runFibNOP()
 {
 	set(1, TypeInt::create(0));
 	set(2, TypeInt::create(1));
@@ -69,7 +118,7 @@ void Executor::runFibNOP()
 	} 	while (get(5)->as<TypeBool::ValueType>());
 }
 
-void Executor::runFibNOP2()
+void ExecutorOld::runFibNOP2()
 {
 	auto v1 = TypeInt::create(0);
 	auto v2 = TypeInt::create(1);
@@ -86,7 +135,7 @@ void Executor::runFibNOP2()
 	set(2, v2);
 }
 
-void Executor::runFibNOP3()
+void ExecutorOld::runFibNOP3()
 {
 	TypeInt::ValueType v1 = 0;
 	TypeInt::ValueType v2 = 1;
@@ -103,56 +152,56 @@ void Executor::runFibNOP3()
 	set(2, TypeInt::create(v2));
 }
 
-void Executor::pushCode(const std::vector<Operation::Ref>& code)
+void ExecutorOld::pushCode(const std::vector<OperationOld::Ref>& code)
 {
 	codeStack.emplace_back(code, size());
 	currentCode = &codeStack.back();
 }
 
-void Executor::popCode()
+void ExecutorOld::popCode()
 {
 	codeStack.pop_back();
 	currentCode = codeStack.empty() ? nullptr : &codeStack.back();
 }
 
-CodeBlock& Executor::getCode()
+CodeBlock& ExecutorOld::getCode()
 {
 	return *currentCode;
 }
 
-TypeBase::Ref& Executor::get(size_t index)
+TypeBase::Ref& ExecutorOld::get(size_t index)
 {
 	_ASSERT(index < size());
 	return dataFrame[index];
 }
 
-void Executor::set(size_t index, TypeBase::Ref value)
+void ExecutorOld::set(size_t index, TypeBase::Ref value)
 {
 	_ASSERT(index < size());
 	dataFrame[index] = value;
 }
 
-size_t Executor::size() const
+size_t ExecutorOld::size() const
 {
 	return dataFrame.size();
 }
 
-void Executor::resize(size_t size)
+void ExecutorOld::resize(size_t size)
 {
 	dataFrame.resize(size);
 }
 
 
-CodeBlock::CodeBlock(const std::vector<Operation::Ref>& code, size_t bottom)
+CodeBlock::CodeBlock(const std::vector<OperationOld::Ref>& code, size_t bottom)
 	: operations(code), currentOperation(operations.begin()), dataBottom(bottom)
 {}
 
-const Operation& CodeBlock::getOperation()
+const OperationOld& CodeBlock::getOperation()
 {
 	return *operations[currentOperationIdx++];
 }
 
-const Operation& CodeBlock::getOperationIt()
+const OperationOld& CodeBlock::getOperationIt()
 {
 	return **currentOperation++;
 }

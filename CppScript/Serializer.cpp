@@ -28,16 +28,16 @@ private:
 JsonLoader::JsonLoader(const Json& data) : operationData(data)
 {}
 
-void JsonLoader::serialize(Operation::Ref& obj)
+void JsonLoader::serialize(OperationOld::Ref& obj)
 {
-	obj = Operation::create(operationData["type"].get<std::string>());
+	obj = OperationOld::create(operationData["type"].get<std::string>());
 	if (obj)
 	{
 		obj->serialize(*this);
 	}
 }
 
-void JsonLoader::serialize(std::vector<Operation::Ref>& objs, const char* name)
+void JsonLoader::serialize(std::vector<OperationOld::Ref>& objs, const char* name)
 {
 	const auto& data = operationData[name];
 	if (!data.is_array())
@@ -45,7 +45,7 @@ void JsonLoader::serialize(std::vector<Operation::Ref>& objs, const char* name)
 	for (const auto& objData : data)
 	{
 		JsonLoader opLoader{ objData };
-		Operation::Ref obj;
+		OperationOld::Ref obj;
 		opLoader.serialize(obj);
 		objs.push_back(std::move(obj));
 	}

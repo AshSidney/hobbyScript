@@ -12,8 +12,8 @@ namespace CppScript
 	public:
 		virtual ~Serializer() = default;
 
-		virtual void serialize(std::vector<Operation::Ref>& objs, const char* name) = 0;
-		virtual void serialize(Operation::Ref& obj) = 0;
+		virtual void serialize(std::vector<OperationOld::Ref>& objs, const char* name) = 0;
+		virtual void serialize(OperationOld::Ref& obj) = 0;
 
 		virtual void serialize(TypeBase::Ref& value, const char* name) = 0;
 		virtual void serialize(IntValue& value, const char* name) = 0;
@@ -26,8 +26,8 @@ namespace CppScript
 	public:
 		JsonLoader(const Json& data);
 
-		void serialize(std::vector<Operation::Ref>& objs, const char* name) override;
-		void serialize(Operation::Ref& obj) override;
+		void serialize(std::vector<OperationOld::Ref>& objs, const char* name) override;
+		void serialize(OperationOld::Ref& obj) override;
 
 		void serialize(TypeBase::Ref& value, const char* name) override;
 		void serialize(IntValue& value, const char* name) override;

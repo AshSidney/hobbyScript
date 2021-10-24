@@ -11,23 +11,24 @@ using namespace CppScript;
 class OperationsFixture : public testing::Test
 {
 protected:
-	std::vector<Operation::Ref> loadOperations(const Json& code)
+
+	std::vector<OperationOld::Ref> loadOperations(const Json& code)
 	{
 		JsonLoader codeData{ code };
-		std::vector<Operation::Ref> operations;
+		std::vector<OperationOld::Ref> operations;
 		codeData.serialize(operations, "code");
 		operations.push_back(std::make_unique<CodeBlock::BlockEndOperation>());
 		return operations;
 	}
 
-	Executor getExecutor(size_t dataSize)
+	ExecutorOld getExecutor(size_t dataSize)
 	{
-		Executor executor;
+		ExecutorOld executor;
 		executor.resize(dataSize);
 		return executor;
 	}
 
-	void runOperations(Executor& executor, std::vector<Operation::Ref>& operations)
+	void runOperations(ExecutorOld& executor, std::vector<OperationOld::Ref>& operations)
 	{
 		executor.pushCode(operations);
 		executor.run();
@@ -38,56 +39,111 @@ class OperationMock : public Operation
 {
 public:
 	MOCK_METHOD(void, execute, (Executor&), (const, override));
-	MOCK_METHOD(void, serialize, (Serializer&), (override));
 	//MOCK_METHOD(std::vector<TypePlace>, getChangedTypes, (), (const, override));
 };
 
 TEST_F(OperationsFixture, MatchSignatureToSpecificationBasic)
 {
-	Operation::Specification opSpec{ {{&TypeFloat::id(), OperandSource::DirectValue}} };
-	EXPECT_TRUE(opSpec.matches({ "testOp", {{TypeFloat::id(), OperandSource::DirectValue}} }));
-	EXPECT_FALSE(opSpec.matches({ "testOp", {{TypeFloat::id(), OperandSource::MemoryValue}} }));
-	EXPECT_FALSE(opSpec.matches({ "testOp", {{TypeInt::id(), OperandSource::MemoryValue}} }));
+	Operation::Specification opSpec{ "testOp", {{&TypeFloat::id()}}, {} };
+	EXPECT_TRUE(opSpec.matches({ "testOp", {{&TypeFloat::id()}} }));
+	EXPECT_FALSE(opSpec.matches({ "testOp", {{&TypeInt::id()}} }));
 	EXPECT_FALSE(opSpec.matches({ "testOp", {} }));
-	EXPECT_FALSE(opSpec.matches({ "testOp", {{TypeFloat::id(), OperandSource::DirectValue}, {TypeInt::id(), OperandSource::MemoryValue}} }));
+	EXPECT_FALSE(opSpec.matches({ "testOp", {{&TypeFloat::id()}, {&TypeInt::id()}} }));
 }
 
 TEST_F(OperationsFixture, MatchSignatureToSpecificationVariadic)
 {
-	Operation::Specification opSpec{ {{&TypeInt::id(), OperandSource::MemoryValue, 1, 2}} };
-	EXPECT_TRUE(opSpec.matches({ "testOp", {{TypeInt::id(), OperandSource::MemoryValue}} }));
-	EXPECT_TRUE(opSpec.matches({ "testOp", {{TypeInt::id(), OperandSource::MemoryValue}, {TypeInt::id(), OperandSource::MemoryValue}} }));
-	EXPECT_FALSE(opSpec.matches({ "testOp", {{TypeFloat::id(), OperandSource::MemoryValue}} }));
-	EXPECT_FALSE(opSpec.matches({ "testOp", {{TypeInt::id(), OperandSource::MemoryValue}, {TypeInt::id(), OperandSource::DirectValue}} }));
-	EXPECT_FALSE(opSpec.matches({ "testOp", {{TypeInt::id(), OperandSource::MemoryValue}, {TypeInt::id(), OperandSource::MemoryValue}, {TypeInt::id(), OperandSource::MemoryValue}} }));
+	Operation::Specification opSpec{ "testOp", {{&TypeInt::id(), 1, 2}}, {} };
+	EXPECT_TRUE(opSpec.matches({ "testOp", {{&TypeInt::id()}} }));
+	EXPECT_TRUE(opSpec.matches({ "testOp", {{&TypeInt::id()}, {&TypeInt::id()}} }));
+	EXPECT_FALSE(opSpec.matches({ "testOp", {{&TypeFloat::id()}} }));
+	EXPECT_FALSE(opSpec.matches({ "testOp", {{&TypeInt::id()}, {&TypeInt::id()}, {&TypeInt::id()}} }));
 }
 
-TEST_F(OperationsFixture, AddCustomOperations)
+TEST_F(OperationsFixture, AddOperations)
 {
 	Operation::Ref operation1 = std::make_unique<OperationMock>();
 	auto operation1Ptr = operation1.get();
-	Operation::add("TestOp1", {{{nullptr, OperandSource::DirectValue, 1, 3}},
-		[&](const std::vector<Operation::OperandType>&) { return std::move(operation1); } });
+	Operation::Specification opSpec1{ "TestOp1", {{nullptr, 1, 3}}, [&](const std::vector<Operation::Argument>&) { return std::move(operation1); } };
 
 	Operation::Ref operation2 = std::make_unique<OperationMock>();
 	auto operation2Ptr = operation2.get();
-	Operation::add("TestOp2", {{{ &TypeInt::id(), OperandSource::MemoryValue }},
-		[&](const std::vector<Operation::OperandType>&) { return std::move(operation2); } });
+	Operation::Specification opSpec2{ "TestOp2", {{ &TypeInt::id() }}, [&](const std::vector<Operation::Argument>&) { return std::move(operation2); } };
 
-	auto createdOperation = Operation::create({ "TestOp1", { { TypeFloat::id(), OperandSource::DirectValue } } });
+	auto createdOperation = Operation::create({ "TestOp1", { { &TypeFloat::id() } } });
 	EXPECT_EQ(createdOperation.get(), operation1Ptr);
 	operation1 = std::move(createdOperation);
-	EXPECT_FALSE(Operation::create({ "TestOp1", { { TypeFloat::id(), OperandSource::MemoryValue } } }));
-	EXPECT_EQ(Operation::create({ "TestOp1", { { TypeFloat::id(), OperandSource::DirectValue}, { TypeBool::id(), OperandSource::DirectValue } } }).get(), operation1Ptr);
+	createdOperation = Operation::create({ "TestOp1", { { &TypeFloat::id() }, { &TypeBool::id() } } });
+	EXPECT_EQ(createdOperation.get(), operation1Ptr);
+	operation1 = std::move(createdOperation);
+	EXPECT_FALSE(Operation::create({ "TestOp1", { { &TypeInt::id() }, { &TypeFloat::id() }, { &TypeBool::id() }, { &TypeInt::id() } } }));
+	operation1.reset();
+	EXPECT_FALSE(Operation::create({ "TestOp1", { { &TypeInt::id() } } }));
 
-	EXPECT_FALSE(Operation::create({ "TestOp2", { { TypeInt::id(), OperandSource::DirectValue } } }));
-	EXPECT_EQ(Operation::create({ "TestOp2", { { TypeInt::id(), OperandSource::MemoryValue } } }).get(), operation2Ptr);
-	EXPECT_FALSE(Operation::create({ "TestOp2", { { TypeFloat::id(), OperandSource::MemoryValue } } }));
+	EXPECT_EQ(Operation::create({ "TestOp2", { { &TypeInt::id() } } }).get(), operation2Ptr);
+	EXPECT_FALSE(Operation::create({ "TestOp2", { { &TypeFloat::id() } } }));
 
-	EXPECT_FALSE(Operation::create({ "NonExistingOp", { { TypeInt::id(), OperandSource::DirectValue } } }));
+	EXPECT_FALSE(Operation::create({ "NonExistingOp", { { &TypeInt::id() } } }));
 }
 
-TEST_F(OperationsFixture, Value)
+TEST_F(OperationsFixture, Clone)
+{
+	Executor executor;
+	executor.add({ {TypeFloat::create(12.3), TypeInt::create(456)} });
+	executor.push(3);
+	auto cloneOp = Operation::create({ "Clone", { {&TypeInt::id(), {MemoryPlace::Type::Module, 1}}, {nullptr, {MemoryPlace::Type::Local, 2}} } });
+	executor.run(*cloneOp);
+
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Local, 2 })->as<TypeInt::ValueType>(), 456);
+
+	executor.get({ MemoryPlace::Type::Local, 2 })->as<TypeInt::ValueType>() += 25;
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Local, 2 })->as<TypeInt::ValueType>(), 481);
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Module, 1 })->as<TypeInt::ValueType>(), 456);
+}
+
+TEST_F(OperationsFixture, AddIntInt)
+{
+	Executor executor;
+	executor.add({ {TypeInt::create(543), TypeInt::create(21)} });
+	auto addOp = Operation::create({ "+=", { {&TypeInt::id(), { MemoryPlace::Type::Module, 1 }}, {&TypeInt::id(), { MemoryPlace::Type::Module, 0 }} } });
+	executor.run(*addOp);
+
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Module, 0 })->as<TypeInt::ValueType>(), 543);
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Module, 1 })->as<TypeInt::ValueType>(), 564);
+}
+
+TEST_F(OperationsFixture, AddFloatInt)
+{
+	Executor executor;
+	executor.add({ {TypeFloat::create(78.9), TypeInt::create(12)} });
+	executor.push(1);
+	executor.run(*Operation::create({ "Clone", { {&TypeFloat::id(), { MemoryPlace::Type::Module, 0 }}, {nullptr, { MemoryPlace::Type::Local, 0 }} } }));
+	auto addOp = Operation::create({ "+=", { {&TypeFloat::id(), { MemoryPlace::Type::Local, 0 }}, {&TypeInt::id(), { MemoryPlace::Type::Module, 1 }} } });
+	executor.run(*addOp);
+
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Local, 0 })->as<TypeFloat::ValueType>(), 90.9);
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Module, 0 })->as<TypeFloat::ValueType>(), 78.9);
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Module, 1 })->as<TypeInt::ValueType>(), 12);
+}
+
+TEST_F(OperationsFixture, SwapRef)
+{
+	Executor executor;
+	auto intVal = TypeInt::create(12);
+	executor.add({ {TypeBool::trueValue, intVal} });
+	auto swapOp = Operation::create({ "SwapRef", { {&TypeBool::id(), {MemoryPlace::Type::Module, 0}}, {&TypeInt::id(), {MemoryPlace::Type::Module, 1}} } });
+	executor.run(*swapOp);
+
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Module, 0 }), intVal);
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Module, 0 })->as<TypeInt::ValueType>(), 12);
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Module, 1 }), TypeBool::trueValue);
+	EXPECT_TRUE(executor.get({ MemoryPlace::Type::Module, 1 })->as<TypeBool::ValueType>());
+}
+
+
+// deprecated
+
+TEST_F(OperationsFixture, ValueOld)
 {
 	auto valueOperation = loadOperations(R"( { "code" : [ { "type" : "Value", "destIndex" : 0, "data" : 789.12 } ] } )"_json);
 	auto executor = getExecutor(1);
@@ -99,7 +155,7 @@ TEST_F(OperationsFixture, Value)
 	EXPECT_EQ(executor.get(0)->as<TypeFloat::ValueType>(), 804.72);
 }
 
-TEST_F(OperationsFixture, CloneValue)
+TEST_F(OperationsFixture, CloneValueOld)
 {
 	auto valueOperation = loadOperations(R"( { "code" : [ { "type" : "CloneValue", "destIndex" : 1, "data" : 456 } ] } )"_json);
 	auto executor = getExecutor(3);

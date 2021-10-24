@@ -7,7 +7,38 @@
 
 using namespace CppScript;
 
-class ExecutionFixture : public testing::Test
+TEST(ExecutionTest, LocalMemory)
+{
+	Executor executor;
+	executor.push({ 4 });
+	executor.set({ MemoryPlace::Type::Local, 2 }, TypeInt::create(123));
+	executor.set({ MemoryPlace::Type::Local, 1 }, TypeFloat::create(78.9));
+
+	executor.push({ 3 });
+	executor.set({ MemoryPlace::Type::Local, 1 }, TypeInt::create(96));
+
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Local, 1 })->as<IntValue>(), 96);
+	EXPECT_FALSE(executor.get({ MemoryPlace::Type::Local, 0 }));
+	EXPECT_FALSE(executor.get({ MemoryPlace::Type::Local, 2 }));
+	
+	executor.pop();
+
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Local, 1 })->as<FloatValue>(), 78.9);
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Local, 2 })->as<IntValue>(), 123);
+	EXPECT_FALSE(executor.get({ MemoryPlace::Type::Local, 0 }));
+	EXPECT_FALSE(executor.get({ MemoryPlace::Type::Local, 3 }));
+}
+
+TEST(ExecutionTest, AddModule_GetModuleData)
+{
+	Executor executor;
+	executor.add({ {{TypeFloat::create(-357.19), TypeInt::create(456)}} });
+
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Module, 0 })->as<FloatValue>(), -357.19);
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Module, 1 })->as<IntValue>(), 456);
+}
+
+/*class ExecutionFixture : public testing::Test
 {
 protected:
 	Operation::Ref loadOperation(const Json& opData)
@@ -96,7 +127,7 @@ TEST_F(OperationsFixture, Add)
 
 	valueAdder->execute(executor);
 	EXPECT_NEAR(context.top()->as<TypeFloat::ValueType>(), 515.6, 1e-8);
-}
+}*/
 
 /*TEST_F(OperationsFixture, AssignValue)
 {

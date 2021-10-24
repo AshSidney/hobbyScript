@@ -8,6 +8,226 @@
 namespace CppScript
 {
 
+struct ArgumentMatcher
+{
+	ArgumentMatcher(const std::vector<Operation::Specification::ArgumentType>& operands)
+		: currentArgument(operands.cbegin()), endArgument(operands.cend())
+	{}
+
+	enum class Result{Matched, Next, Failed};
+
+	bool match(const Operation::Argument& argument)
+	{
+		Result result{ Result::Next };
+		while (result == Result::Next)
+			result = matchCurrent(argument);
+		return result == Result::Matched;
+	}
+
+	bool isFinished() const
+	{
+		auto count = currentCount;
+		for (auto it = currentArgument; it != endArgument; ++it)
+		{
+			if (it->minCount > count)
+				return false;
+			count = 0;
+		}
+		return true;
+	}
+
+	Result matchCurrent(const Operation::Argument& opType)
+	{
+		if (currentArgument == endArgument)
+			return Result::Failed;
+		if (currentArgument->typeId == nullptr || currentArgument->typeId == opType.typeId)
+		{
+			if (currentArgument->maxCount > currentCount)
+			{
+				++currentCount;
+				return Result::Matched;
+			}
+		}
+		else if (currentArgument->minCount < currentCount)
+				return Result::Failed;
+		++currentArgument;
+		currentCount = 0;
+		return Result::Next;
+	}
+
+	Operation::Specification::ArgumentTypes::const_iterator currentArgument;
+	const Operation::Specification::ArgumentTypes::const_iterator endArgument;
+	size_t currentCount{ 0 };
+};
+
+
+Operation::Specification::Specification(std::string&& operation, ArgumentTypes&& arguments, Creator&& creator)
+	: arguments(std::move(arguments)), creator(std::move(creator))
+{
+	specPosition = specifications.emplace(std::move(operation), this);
+}
+
+Operation::Specification::~Specification()
+{
+	specifications.erase(specPosition);
+}
+
+Operation::Ref Operation::Specification::createOperation(const Operation::Call& opCall)
+{
+	auto [suitableSpecFirst, suitableSpecLast] = specifications.equal_range(opCall.operation);
+	for (auto spec = suitableSpecFirst; spec != suitableSpecLast; ++spec)
+	{
+		if (!spec->second->matches(opCall))
+			continue;
+		auto operation = spec->second->creator(opCall.arguments);
+		if (operation)
+			return operation;
+	}
+	return {};
+}
+
+bool Operation::Specification::matches(const Operation::Call& opCall) const
+{
+	ArgumentMatcher matcher{ arguments };
+	for (const auto& operand : opCall.arguments)
+	{
+		if (!matcher.match(operand))
+			return false;
+	}
+	return matcher.isFinished();
+}
+
+std::unordered_multimap<std::string, const Operation::Specification*> Operation::Specification::specifications;
+
+
+Operation::Ref Operation::create(const Operation::Call& opCall)
+{
+	return Specification::createOperation(opCall);
+}
+
+
+class MemoryAccessor
+{
+public:
+	MemoryAccessor(Operation::Argument arg) : argument(arg)
+	{}
+
+	const Operation::Argument& get() const
+	{
+		return argument;
+	}
+
+	TypeBase::Ref& get(Executor& executor) const
+	{
+		return executor.get(argument.place);
+	}
+
+	void set(Executor& executor, TypeBase::Ref value) const
+	{
+		executor.set(argument.place, std::move(value));
+	}
+
+private:
+	Operation::Argument argument;
+};
+
+
+class CloneOperation : public Operation
+{
+public:
+	class ClonePair
+	{
+	public:
+		void clone(Executor& executor) const
+		{
+			target.set(executor, source.get(executor)->clone());
+		}
+
+		MemoryAccessor source;
+		MemoryAccessor target;
+	};
+
+	void execute(Executor& executor) const
+	{
+		for (const auto& clonePair : clones)
+			clonePair.clone(executor);
+	}
+
+	static Ref create(const Arguments& arguments)
+	{
+		if (arguments.size() % 2 != 0)
+			return {};
+		for (size_t index = 0; index < arguments.size(); index += 2)
+			if (arguments[index].typeId == nullptr)
+				return {};
+		auto operation = std::make_unique<CloneOperation>();
+		operation->clones.reserve(arguments.size() / 2);
+		for (size_t index = 0; index < arguments.size(); index += 2)
+			operation->clones.push_back({ arguments[index], arguments[index + 1] });
+		return operation;
+	}
+
+private:
+	std::vector<ClonePair> clones;
+};
+
+Operation::Specification cloneSpec{ "Clone", { {nullptr, 2, std::numeric_limits<int>::max()} }, CloneOperation::create };
+
+
+template <typename TARGET, typename SOURCE> class AddOperation : public Operation
+{
+public:
+	AddOperation(const Argument& targetArg, const Argument& sourceArg)
+		: source(sourceArg), target(targetArg)
+	{}
+
+	void execute(Executor& executor) const
+	{
+		static_cast<Type<TARGET>&>(*target.get(executor)) += static_cast<Type<SOURCE>&>(*source.get(executor));
+	}
+
+	static Ref create(const Arguments& arguments)
+	{
+		return std::make_unique<AddOperation>(arguments[0], arguments[1]);
+	}
+
+private:
+	MemoryAccessor source;
+	MemoryAccessor target;
+};
+
+Operation::Specification addSpecIntInt{ "+=", {{&TypeInt::id(), 2, 2}}, AddOperation<IntValue, IntValue>::create };
+Operation::Specification addSpecFloatFloat{ "+=", {{&TypeFloat::id(), 2, 2}}, AddOperation<FloatValue, FloatValue>::create };
+Operation::Specification addSpecFloatInt{ "+=", {{&TypeFloat::id(), 1, 1}, {&TypeInt::id(), 1, 1}}, AddOperation<FloatValue, IntValue>::create };
+
+
+class SwapReferenceOperation : public Operation
+{
+public:
+	SwapReferenceOperation(const Argument& arg0, const Argument& arg1)
+		: operand0(arg0), operand1(arg1)
+	{}
+
+	void execute(Executor& executor) const
+	{
+		executor.swap(operand0.get().place, operand1.get().place);
+	}
+
+	static Ref create(const Arguments& arguments)
+	{
+		return std::make_unique<SwapReferenceOperation>(arguments[0], arguments[1]);
+	}
+
+private:
+	MemoryAccessor operand0;
+	MemoryAccessor operand1;
+};
+
+Operation::Specification swapRefSpec{ "SwapRef", {{nullptr, 2, 2}}, SwapReferenceOperation::create };
+
+
+// deprecated
+
 /*bool operator==(const Operation::OperandType& left, const Operation::OperandType& right)
 {
 	return left.typeId == right.typeId && left.source == right.source;
@@ -18,99 +238,20 @@ bool operator!=(const Operation::OperandType& left, const Operation::OperandType
 	return !(left == right);
 }*/
 
-OperandSource operator&(OperandSource first, OperandSource second)
+OperandSourceOld operator&(OperandSourceOld first, OperandSourceOld second)
 {
-	return OperandSource(size_t(first) & size_t(second));
+	return OperandSourceOld(size_t(first) & size_t(second));
 }
 
-OperandSource operator|(OperandSource first, OperandSource second)
+OperandSourceOld operator|(OperandSourceOld first, OperandSourceOld second)
 {
-	return OperandSource(size_t(first) | size_t(second));
-}
-
-struct OperandMatcher
-{
-	OperandMatcher(const std::vector<Operation::Specification::VariadicTypeOperand>& operands)
-		: currentOperand(operands.cbegin()), endOperand(operands.cend())
-	{}
-
-	enum class Result{Matched, Next, Failed};
-
-	bool match(const Operation::OperandType& opType)
-	{
-		Result result{ Result::Next };
-		while (result == Result::Next)
-			result = matchCurrent(opType);
-		return result == Result::Matched;
-	}
-
-	bool isFinished() const
-	{
-		return currentOperand == endOperand || std::next(currentOperand) == endOperand
-			&& currentOperand->minCount <= currentCount && currentOperand->maxCount >= currentCount;
-	}
-
-	Result matchCurrent(const Operation::OperandType& opType)
-	{
-		if (currentOperand == endOperand)
-			return Result::Failed;
-		if ((currentOperand->typeId == nullptr || *currentOperand->typeId == opType.typeId)
-			&& (currentOperand->source & opType.source) != OperandSource::Invalid)
-		{
-			if (currentOperand->maxCount > currentCount)
-			{
-				++currentCount;
-				return Result::Matched;
-			}
-		}
-		else if (currentOperand->minCount < currentCount)
-				return Result::Failed;
-		++currentOperand;
-		currentCount = 0;
-		return Result::Next;
-	}
-
-	decltype(Operation::Specification::operands)::const_iterator currentOperand;
-	const decltype(Operation::Specification::operands)::const_iterator endOperand;
-	size_t currentCount{ 0 };
-};
-
-bool Operation::Specification::matches(const Operation::Signature& opSign) const
-{
-	OperandMatcher matcher{ operands };
-	for (const auto& operand : opSign.operands)
-	{
-		if (!matcher.match(operand))
-			return false;
-	}
-	return matcher.isFinished();
-}
-
-std::unordered_multimap<std::string, Operation::Specification> Operation::creators;
-
-Operation::Ref Operation::create(const Operation::Signature& opSign)
-{
-	auto suitableCreators = creators.equal_range(opSign.operation);
-	for (auto creator = suitableCreators.first; creator != suitableCreators.second; ++creator)
-	{
-		if (!creator->second.matches(opSign))
-			continue;
-		auto operation = creator->second.creator(opSign.operands);
-		if (operation)
-			return operation;
-	}
-	return {};
-}
-
-void Operation::add(const std::string& operation, const Operation::Specification& specification)
-{
-	creators.emplace(operation, specification);
+	return OperandSourceOld(size_t(first) | size_t(second));
 }
 
 class OperationCreator
 {
 public:
-	virtual Operation::Ref create() const = 0;
+	virtual OperationOld::Ref create() const = 0;
 	virtual const std::string& getName() const = 0;
 
 	using Creators = std::array<OperationCreator*, size_t(OperationType::Last)>;
@@ -133,7 +274,7 @@ public:
 		names[name] = O::getOpType();
 	}
 
-	virtual Operation::Ref create() const override
+	virtual OperationOld::Ref create() const override
 	{
 		return std::make_unique<O>();
 	}
@@ -152,7 +293,7 @@ OpCreator<CloneValueOperation> cloneValueOp{ "CloneValue" };
 OpCreator<LocalValueOperation> localValueOp{ "LocalValue" };
 OpCreator<CloneLocalValueOperation> cloneLocalValueOp{ "CloneLocalValue" };
 OpCreator<SwapOperation> swapOp{ "Swap" };
-OpCreator<AddOperation> addOp{ "Add" };
+OpCreator<AddOperationOld> addOp{ "Add" };
 OpCreator<EqualOperation> equalOp{ "Equal" };
 OpCreator<NotEqualOperation> notEqualOp{ "NotEqual" };
 OpCreator<LessOperation> lessOp{ "Less" };
@@ -167,17 +308,17 @@ OpCreator<IfElseOperation> ifElseOp{ "IfElse" };
 //OpCreator<BreakOperation> breakOp{ "Break" };
 
 
-Operation::Ref Operation::create(OperationType opType)
+OperationOld::Ref OperationOld::create(OperationType opType)
 {
 	return OperationCreator::creators[size_t(opType)]->create();
 }
 
-Operation::Ref Operation::create(const std::string& opType)
+OperationOld::Ref OperationOld::create(const std::string& opType)
 {
 	return create(OperationCreator::names.at(opType));
 }
 
-const std::string& Operation::getName(OperationType opType)
+const std::string& OperationOld::getName(OperationType opType)
 {
 	return OperationCreator::creators[size_t(opType)]->getName();
 }
@@ -196,13 +337,13 @@ void DirectValueOperationBase::serialize(Serializer& serializer)
 }
 
 
-void ValueOperation::execute(Executor& executor) const
+void ValueOperation::execute(ExecutorOld& executor) const
 {
 	executor.set(destinationIndex, value);
 }
 
 
-void CloneValueOperation::execute(Executor& executor) const
+void CloneValueOperation::execute(ExecutorOld& executor) const
 {
 	executor.set(destinationIndex, value->clone());
 }
@@ -215,19 +356,19 @@ void LocalValueOperationBase::serialize(Serializer& serializer)
 }
 
 
-void LocalValueOperation::execute(Executor& executor) const
+void LocalValueOperation::execute(ExecutorOld& executor) const
 {
 	executor.set(destinationIndex, executor.get(sourceIndex));
 }
 
 
-void CloneLocalValueOperation::execute(Executor& executor) const
+void CloneLocalValueOperation::execute(ExecutorOld& executor) const
 {
 	executor.set(destinationIndex, executor.get(sourceIndex)->clone());
 }
 
 
-void SwapOperation::execute(Executor& executor) const
+void SwapOperation::execute(ExecutorOld& executor) const
 {
 	std::swap(executor.get(index0), executor.get(index1));
 }
@@ -247,7 +388,7 @@ void AccumulationOperation::serialize(Serializer& serializer)
 }
 
 
-void AddOperation::execute(Executor& executor) const
+void AddOperationOld::execute(ExecutorOld& executor) const
 {
 	*executor.get(destinationIndex) += *executor.get(sourceIndex);
 }
@@ -261,38 +402,38 @@ void ComparisonOperation::serialize(Serializer& serializer)
 }
 
 
-void EqualOperation::execute(Executor& executor) const
+void EqualOperation::execute(ExecutorOld& executor) const
 {
 	executor.set(destinationIndex, *executor.get(sourceIndex0) == *executor.get(sourceIndex1) ? TypeBool::trueValue : TypeBool::falseValue);
 }
 
-void NotEqualOperation::execute(Executor& executor) const
+void NotEqualOperation::execute(ExecutorOld& executor) const
 {
 	executor.set(destinationIndex, *executor.get(sourceIndex0) == *executor.get(sourceIndex1) ? TypeBool::falseValue : TypeBool::trueValue);
 }
 
-void LessOperation::execute(Executor& executor) const
+void LessOperation::execute(ExecutorOld& executor) const
 {
 	executor.set(destinationIndex, *executor.get(sourceIndex0) < *executor.get(sourceIndex1) ? TypeBool::trueValue : TypeBool::falseValue);
 }
 
-void GreaterOperation::execute(Executor& executor) const
+void GreaterOperation::execute(ExecutorOld& executor) const
 {
 	executor.set(destinationIndex, *executor.get(sourceIndex1) < *executor.get(sourceIndex0) ? TypeBool::trueValue : TypeBool::falseValue);
 }
 
-void LessEqualOperation::execute(Executor& executor) const
+void LessEqualOperation::execute(ExecutorOld& executor) const
 {
 	executor.set(destinationIndex, *executor.get(sourceIndex1) < *executor.get(sourceIndex0) ? TypeBool::falseValue : TypeBool::trueValue);
 }
 
-void GreaterEqualOperation::execute(Executor& executor) const
+void GreaterEqualOperation::execute(ExecutorOld& executor) const
 {
 	executor.set(destinationIndex, *executor.get(sourceIndex0) < *executor.get(sourceIndex1) ? TypeBool::falseValue : TypeBool::trueValue);
 }
 
 
-void JumpOperation::execute(Executor& executor) const
+void JumpOperation::execute(ExecutorOld& executor) const
 {
 	executor.getCode().setNextOperation(nextOperation);
 }
@@ -303,7 +444,7 @@ void JumpOperation::serialize(Serializer& serializer)
 	opType = getType();
 }
 
-void JumpIfOperation::execute(Executor& executor) const
+void JumpIfOperation::execute(ExecutorOld& executor) const
 {
 	if (executor.get(index)->as<TypeBool::ValueType>())
 		executor.getCode().setNextOperation(nextOperation);
@@ -317,7 +458,7 @@ void JumpIfOperation::serialize(Serializer& serializer)
 }
 
 
-void IfOperation::execute(Executor& executor) const
+void IfOperation::execute(ExecutorOld& executor) const
 {
 	if (executor.get(index)->as<TypeBool::ValueType>())
 		executor.pushCode(operations);
@@ -331,7 +472,7 @@ void IfOperation::serialize(Serializer& serializer)
 	opType = getType();
 }
 
-void IfElseOperation::execute(Executor& executor) const
+void IfElseOperation::execute(ExecutorOld& executor) const
 {
 	executor.pushCode(executor.get(index)->as<TypeBool::ValueType>() ? trueOperations : falseOperations);
 }

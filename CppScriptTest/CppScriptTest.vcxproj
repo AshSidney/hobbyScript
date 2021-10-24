@@ -150,6 +150,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="ExecutionTest.cpp" />
     <ClCompile Include="OperationsTest.cpp" />
     <ClCompile Include="TypesTest.cpp" />
   </ItemGroup>
