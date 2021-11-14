@@ -86,19 +86,78 @@ TEST_F(OperationsFixture, AddOperations)
 	EXPECT_FALSE(Operation::create({ "NonExistingOp", { { &TypeInt::id() } } }));
 }
 
-TEST_F(OperationsFixture, Clone)
+
+TEST_F(OperationsFixture, Copy_NullTarget_PerformClone)
 {
 	Executor executor;
 	executor.add({ {TypeFloat::create(12.3), TypeInt::create(456)} });
 	executor.push(3);
-	auto cloneOp = Operation::create({ "Clone", { {&TypeInt::id(), {MemoryPlace::Type::Module, 1}}, {nullptr, {MemoryPlace::Type::Local, 2}} } });
-	executor.run(*cloneOp);
+	auto copyOp = Operation::create({ "copy", { {&TypeInt::id(), {MemoryPlace::Type::Module, 1}}, {nullptr, {MemoryPlace::Type::Local, 2}} } });
+	executor.run(*copyOp);
 
 	EXPECT_EQ(executor.get({ MemoryPlace::Type::Local, 2 })->as<TypeInt::ValueType>(), 456);
 
 	executor.get({ MemoryPlace::Type::Local, 2 })->as<TypeInt::ValueType>() += 25;
 	EXPECT_EQ(executor.get({ MemoryPlace::Type::Local, 2 })->as<TypeInt::ValueType>(), 481);
 	EXPECT_EQ(executor.get({ MemoryPlace::Type::Module, 1 })->as<TypeInt::ValueType>(), 456);
+}
+
+TEST_F(OperationsFixture, Copy_NotMatchingTarget_PerformClone)
+{
+	Executor executor;
+	executor.add({ {TypeFloat::create(12.3), TypeInt::create(456)} });
+	auto copyOp = Operation::create({ "copy", { {&TypeFloat::id(), {MemoryPlace::Type::Module, 0}}, {&TypeInt::id(), {MemoryPlace::Type::Module, 1}} } });
+	executor.run(*copyOp);
+
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Module, 1 })->as<TypeFloat::ValueType>(), 12.3);
+
+	executor.get({ MemoryPlace::Type::Module, 0 })->as<TypeFloat::ValueType>() = 7.0;
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Module, 0 })->as<TypeFloat::ValueType>(), 7.0);
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Module, 1 })->as<TypeFloat::ValueType>(), 12.3);
+}
+
+TEST_F(OperationsFixture, Copy_MatchingTarget_PerformValueCopy)
+{
+	Executor executor;
+	executor.add({ {TypeFloat::create(12.3), TypeInt::create(456), TypeFloat::create(9.0) } });
+	auto copyOp = Operation::create({ "copy", { {&TypeFloat::id(), {MemoryPlace::Type::Module, 2}}, {&TypeFloat::id(), {MemoryPlace::Type::Module, 0}} } });
+	const auto target = executor.get({ MemoryPlace::Type::Module, 0 });
+	executor.run(*copyOp);
+
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Module, 0 }), target);
+	EXPECT_EQ(target->as<TypeFloat::ValueType>(), 9.0);
+	EXPECT_NE(executor.get({ MemoryPlace::Type::Module, 2 }), target);
+}
+
+TEST_F(OperationsFixture, Copy_MultipleValues)
+{
+	Executor executor;
+	executor.add({ {TypeInt::create(12), TypeInt::create(456), TypeInt::create(78) } });
+	executor.push(2);
+	auto copyOp = Operation::create({ "copy", { {&TypeInt::id(), {MemoryPlace::Type::Module, 2}}, {nullptr, {MemoryPlace::Type::Local, 0}},
+		{&TypeInt::id(), {MemoryPlace::Type::Module, 0}}, {&TypeInt::id(), {MemoryPlace::Type::Module, 1}}} });
+	const auto copyTarget = executor.get({ MemoryPlace::Type::Module, 1 });
+	executor.run(*copyOp);
+
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Module, 1 }), copyTarget);
+	EXPECT_EQ(copyTarget->as<TypeInt::ValueType>(), 12);
+	EXPECT_NE(executor.get({ MemoryPlace::Type::Module, 0 }), copyTarget);
+
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Local, 0 })->as<TypeInt::ValueType>(), 78);
+	EXPECT_NE(executor.get({ MemoryPlace::Type::Local, 0 }), executor.get({ MemoryPlace::Type::Module, 2 }));
+}
+
+TEST_F(OperationsFixture, Copy_BoolValues)
+{
+	Executor executor;
+	executor.add({ {TypeBool::trueValue, TypeBool::falseValue, TypeBool::trueValue } });
+	executor.push(2);
+	auto copyOp = Operation::create({ "copy", { {&TypeBool::id(), {MemoryPlace::Type::Module, 0}}, {nullptr, {MemoryPlace::Type::Local, 0}},
+		{&TypeBool::id(), {MemoryPlace::Type::Module, 1}}, {&TypeBool::id(), {MemoryPlace::Type::Module, 2}}} });
+	executor.run(*copyOp);
+
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Module, 2 }), TypeBool::falseValue);
+	EXPECT_EQ(executor.get({ MemoryPlace::Type::Local, 0 }), TypeBool::trueValue);
 }
 
 TEST_F(OperationsFixture, AddIntInt)
@@ -117,7 +176,7 @@ TEST_F(OperationsFixture, AddFloatInt)
 	Executor executor;
 	executor.add({ {TypeFloat::create(78.9), TypeInt::create(12)} });
 	executor.push(1);
-	executor.run(*Operation::create({ "Clone", { {&TypeFloat::id(), { MemoryPlace::Type::Module, 0 }}, {nullptr, { MemoryPlace::Type::Local, 0 }} } }));
+	executor.run(*Operation::create({ "copy", { {&TypeFloat::id(), { MemoryPlace::Type::Module, 0 }}, {nullptr, { MemoryPlace::Type::Local, 0 }} } }));
 	auto addOp = Operation::create({ "+=", { {&TypeFloat::id(), { MemoryPlace::Type::Local, 0 }}, {&TypeInt::id(), { MemoryPlace::Type::Module, 1 }} } });
 	executor.run(*addOp);
 

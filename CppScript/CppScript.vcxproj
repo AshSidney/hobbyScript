@@ -160,6 +160,7 @@
     <ClInclude Include="BasicTypes.h" />
     <ClInclude Include="Execution.h" />
     <ClInclude Include="Json.h" />
+    <ClInclude Include="OperationsImpl.h" />
     <ClInclude Include="Operations.h" />
     <ClInclude Include="Serializer.h" />
     <ClInclude Include="Types.h" />

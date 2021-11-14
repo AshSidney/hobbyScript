@@ -33,6 +33,9 @@
     <ClInclude Include="BasicTypes.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="OperationsImpl.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Operations.cpp">

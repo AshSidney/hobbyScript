@@ -115,6 +115,37 @@ namespace CppScript
 	};
 
 
+	class CopyOperationBase : public Operation
+	{
+	public:
+		void execute(Executor& executor) const override;
+
+		template <typename T> static Ref create(const Arguments& arguments);
+
+		virtual void addParams(const Argument& source, const Argument& target);
+
+	protected:
+		struct Params
+		{
+			MemoryPlace source;
+			MemoryPlace target;
+		};
+
+		std::vector<Params> cloneParams;
+	};
+
+	template <typename T> class CopyOperation : public CopyOperationBase
+	{
+	public:
+		void execute(Executor& executor) const override;
+
+		void addParams(const Argument& source, const Argument& target) override;
+
+	protected:
+		std::vector<Params> copyParams;
+	};
+
+
 	//deprecated
 
 	class ExecutorOld;

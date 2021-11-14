@@ -1,7 +1,8 @@
 #include <CppScript/Operations.h>
-#include <CppScript/Serializer.h>
+#include <CppScript/OperationsImpl.h>
 #include <CppScript/Execution.h>
 #include <CppScript/BasicTypes.h>
+#include <CppScript/Serializer.h>
 #include <array>
 
 
@@ -132,46 +133,37 @@ private:
 };
 
 
-class CloneOperation : public Operation
+void CopyOperationBase::execute(Executor& executor) const
+{
+	for (const auto& param : cloneParams)
+		executor.set(param.target, executor.get(param.source)->clone());
+}
+
+void CopyOperationBase::addParams(const Argument& source, const Argument& target)
+{
+	cloneParams.push_back({ source.place, target.place });
+}
+
+
+Operation::Specification copySpecInt{ "copy", { {nullptr, 2, std::numeric_limits<int>::max()} }, CopyOperationBase::create<IntValue> };
+Operation::Specification copySpecFloat{ "copy", { {nullptr, 2, std::numeric_limits<int>::max()} }, CopyOperationBase::create<FloatValue> };
+
+
+template<> class CopyOperation<BoolValue> : public CopyOperationBase
 {
 public:
-	class ClonePair
+	void execute(Executor& executor) const override
 	{
-	public:
-		void clone(Executor& executor) const
-		{
-			target.set(executor, source.get(executor)->clone());
-		}
-
-		MemoryAccessor source;
-		MemoryAccessor target;
-	};
-
-	void execute(Executor& executor) const
-	{
-		for (const auto& clonePair : clones)
-			clonePair.clone(executor);
+		CopyOperationBase::execute(executor);
 	}
 
-	static Ref create(const Arguments& arguments)
+	void addParams(const Argument& source, const Argument& target) override
 	{
-		if (arguments.size() % 2 != 0)
-			return {};
-		for (size_t index = 0; index < arguments.size(); index += 2)
-			if (arguments[index].typeId == nullptr)
-				return {};
-		auto operation = std::make_unique<CloneOperation>();
-		operation->clones.reserve(arguments.size() / 2);
-		for (size_t index = 0; index < arguments.size(); index += 2)
-			operation->clones.push_back({ arguments[index], arguments[index + 1] });
-		return operation;
+		CopyOperationBase::addParams(source, target);
 	}
-
-private:
-	std::vector<ClonePair> clones;
 };
 
-Operation::Specification cloneSpec{ "Clone", { {nullptr, 2, std::numeric_limits<int>::max()} }, CloneOperation::create };
+Operation::Specification copySpecBool{ "copy", { {nullptr, 2, std::numeric_limits<int>::max()} }, CopyOperationBase::create<BoolValue> };
 
 
 template <typename TARGET, typename SOURCE> class AddOperation : public Operation
