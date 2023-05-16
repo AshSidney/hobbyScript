@@ -10,14 +10,24 @@ class TestedClass
 public:
     int a;
 
+    void set(const TestedClass& other)
+    {
+        a = other.a;
+    }
+
     void add(const TestedClass& other)
     {
         a += other.a;
     }
 
-    int get() const
+    int& get()
     {
         return a;
+    }
+
+    bool equal(const TestedClass& other) const
+    {
+        return a == other.a;
     }
 };
 
@@ -26,61 +36,111 @@ float diff(float x, float y)
     return x - y;
 }
 
-TEST(FunctionDefTest, FunctionCreationAndExecution)
+class FunctionDefFixture : public testing::Test
 {
-    float x{10.0F};
-    float y{2.5F};
-    float r{0.0F};
-    ExecutionContext context;
-    context.set({MemoryType::Local, 1}, &x);
-    context.set({MemoryType::Local, 2}, &y);
-    context.set({MemoryType::Local, 3}, &r);
+protected:
+    void SetUp() override
+    {
+        testModule.defFunction("diff", &diff)
+            .defFunction("set", &TestedClass::set)
+            .defFunction("add", &TestedClass::add)
+            .defFunction("get", &TestedClass::get)
+            .defFunction("==", &TestedClass::equal);
+    }
 
-    FunctionDef difFunc{&diff};
-    FunctionContext funcCont{FunctionSpec::Default};
-    auto fnc = difFunc.createFunction(funcCont, {{MemoryType::Local, 3}, {MemoryType::Local, 1}, {MemoryType::Local, 2}});
+    Module testModule{"testModule"};
+};
+
+TEST_F(FunctionDefFixture, FunctionCreationAndExecution)
+{
+    SpecTypeValueHolder<float> x, y, r;
+    x.set(10.0F);
+    y.set(2.5F);
+    r.set(0.0F);
+    ExecutionContext context;
+    context.set({PlaceType::Local, 1}, x);
+    context.set({PlaceType::Local, 2}, y);
+    context.set({PlaceType::Local, 3}, r);
+
+    FunctionContext funcCont{"diff", FunctionOptions::Default, {PlaceType::Local, 3}, {{PlaceType::Local, 1}, {PlaceType::Local, 2}}};
+    auto fnc = testModule.buildFunction(funcCont);
     fnc->execute(context);
-    EXPECT_EQ(r, 7.5F);
+    EXPECT_EQ(r.get(), 7.5F);
 }
 
-TEST(FunctionDefTest, MethodDefConstructionAndCall)
+TEST_F(FunctionDefFixture, MethodDefConstructionAndCall)
 {
-    FunctionDef addMethod{&TestedClass::add};
-    FunctionDef getMethod{&TestedClass::get};
-    
-    TestedClass x{10};
-    TestedClass y{5};
-    TestedClass z{2};
-    int w{0};
+    SpecTypeValueHolder<TestedClass> x, y, z;
+    x.set({10});
+    y.set({5});
+    z.set({2});
+    SpecTypeValueHolder<int> w;
 
     ExecutionContext context;
-    context.set({MemoryType::Local, 1}, &x);
-    context.set({MemoryType::Local, 2}, &z);
-    FunctionContext funcCont{FunctionSpec::ReturnVoid};
-    auto add = addMethod.createFunction(funcCont, {{MemoryType::Local, 1}, {MemoryType::Local, 2}});
+    context.set({PlaceType::Local, 1}, x);
+    context.set({PlaceType::Local, 2}, z);
+    FunctionContext funcCont{"add", FunctionOptions::Default, {PlaceType::Void}, {{PlaceType::Local, 1}, {PlaceType::Local, 2}}};
+    auto add = testModule.buildFunction(funcCont);
     add->execute(context);
-    EXPECT_EQ(x.get(), 12);
+    EXPECT_EQ(x.get().get(), 12);
 
-    context.set({MemoryType::Local, 3}, &w);
-    FunctionContext funcCont2{FunctionSpec::Default};
-    auto getC = getMethod.createFunction(funcCont2, {{MemoryType::Local, 3}, {MemoryType::Local, 2}});
-    getC->execute(context);
-    EXPECT_EQ(w, 2);
+    context.set({PlaceType::Local, 3}, w);
+    FunctionContext funcCont2{"get", FunctionOptions::Default, {PlaceType::Local, 3}, {{PlaceType::Local, 2}}};
+    auto get = testModule.buildFunction(funcCont2);
+    get->execute(context);
+    EXPECT_EQ(w.get(), 2);
 }
 
-/*TEST(FunctionDefTest, FunctionDefConstructionAndCall)
+TEST_F(FunctionDefFixture, MethodWithJump)
 {
-    FunctionDef diffFunc{&diff};
-
-    float a { 23.0F };
-    float b { 11.25F };
-    float c { -4.25F };
-
+    SpecTypeValueHolder<TestedClass> x, y, z;
+    x.set({8});
+    y.set({5});
+    z.set({});
     ExecutionContext context;
-    context.set({MemoryType::Local, 0}, &a);
-    context.set({MemoryType::Local, 1}, &b);
-    context.set({MemoryType::Local, 2}, &c);
-    auto df = diffFunc.createFunction(FunctionSpec::Default, {{MemoryType::Local, 0}, {MemoryType::Local, 1}, {MemoryType::Local, 2}});
-    df->execute(context);
-    EXPECT_EQ(a, 15.5F);
-}*/
+    context.set({PlaceType::Local, 1}, x);
+    context.set({PlaceType::Local, 2}, y);
+    context.set({PlaceType::Local, 3}, z);
+
+    CodeBlock code;
+    FunctionContext funcCont{"==", FunctionOptions::Jump, {PlaceType::Void}, {{PlaceType::Local, 1}, {PlaceType::Local, 2}}, {1, 2}};
+    code.operations.push_back(testModule.buildFunction(funcCont));
+    funcCont.name = "add";
+    funcCont.options = FunctionOptions::Default;
+    funcCont.argPlaces = {{PlaceType::Local, 1}, {PlaceType::Local, 2}};
+    code.operations.push_back(testModule.buildFunction(funcCont));
+    funcCont.name = "set";
+    funcCont.argPlaces = {{PlaceType::Local, 3}, {PlaceType::Local, 1}};
+    code.operations.push_back(testModule.buildFunction(funcCont));
+
+    context.run(code);
+
+    EXPECT_EQ(z.get().get(), 8);
+}
+
+TEST_F(FunctionDefFixture, MethodWithJump2)
+{
+    SpecTypeValueHolder<TestedClass> x, y, z;
+    x.set({5});
+    y.set({5});
+    z.set({});
+    ExecutionContext context;
+    context.set({PlaceType::Local, 1}, x);
+    context.set({PlaceType::Local, 2}, y);
+    context.set({PlaceType::Local, 3}, z);
+
+    CodeBlock code;
+    FunctionContext funcCont{"==", FunctionOptions::Jump, {PlaceType::Void}, {{PlaceType::Local, 1}, {PlaceType::Local, 2}}, {1, 2}};
+    code.operations.push_back(testModule.buildFunction(funcCont));
+    funcCont.name = "add";
+    funcCont.options = FunctionOptions::Default;
+    funcCont.argPlaces = {{PlaceType::Local, 1}, {PlaceType::Local, 2}};
+    code.operations.push_back(testModule.buildFunction(funcCont));
+    funcCont.name = "set";
+    funcCont.argPlaces = {{PlaceType::Local, 3}, {PlaceType::Local, 1}};
+    code.operations.push_back(testModule.buildFunction(funcCont));
+
+    context.run(code);
+
+    EXPECT_EQ(z.get().get(), 10);
+}

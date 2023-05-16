@@ -1,50 +1,137 @@
 #pragma once
 
 #include <CppScript/Definitions.h>
-#include <memory>
-#include <string_view>
-#include <unordered_map>
+#include <stdexcept>
+#include <optional>
 
 namespace CppScript
 {
 
-class TypeIdBase;
+struct CPPSCRIPT_API TypeId
+{};
+
+CPPSCRIPT_API constexpr bool operator==(const TypeId& left, const TypeId& right)
+{
+    return &left == &right;
+}
+
 
 class CPPSCRIPT_API ValueHolder
 {
 public:
-    using Ref = std::shared_ptr<ValueHolder>;
-
     virtual ~ValueHolder() noexcept = default;
 
-    virtual const TypeIdBase& getId() const = 0;
-
-    virtual Ref Clone() const;
-
+    virtual const TypeId& getTypeId() const = 0;
+    virtual const TypeId& getSpecTypeId() const = 0;
 };
 
 
-class CPPSCRIPT_API TypeIdBase
+class CPPSCRIPT_API ValueNotAvailable : public std::logic_error
 {
 public:
-    TypeIdBase(const std::string_view name) noexcept;
+	ValueNotAvailable(const TypeId& typeId): std::logic_error("Value not available"), typeId(typeId)
+    {}
 
-    bool operator==(const TypeIdBase& other) const
+    const TypeId& typeId;
+};
+
+
+template <typename T>
+class TypeValueHolder : public ValueHolder
+{
+public:
+    using ValueRef = std::add_lvalue_reference_t<T>;
+    using ValuePtr = std::add_pointer_t<T>;
+
+    ValueRef get() const
     {
-        return this == &other;
+        return *value;
     }
 
-    const std::string_view& getName() const noexcept
+    void set(ValueRef val)
     {
-        return typeName;
+        value = &val;
     }
 
-    static const TypeIdBase* find(const std::string_view& name);
+    const TypeId& getTypeId() const
+    {
+        return typeId;
+    }
+
+    static TypeId typeId;
+
+protected:
+    ValuePtr value{ nullptr };
+};
+
+template <typename T> TypeId TypeValueHolder<T>::typeId;
+
+
+template <typename T>
+class SpecTypeValueHolder : public TypeValueHolder<std::remove_cvref_t<T>>
+{
+public:
+    using ValueType = std::remove_cvref_t<T>;
+
+    void set(T val)
+    {
+        storedValue = std::move(val);
+        TypeValueHolder<ValueType>::set(*storedValue);
+    }
+
+    const TypeId& getSpecTypeId() const
+    {
+        return specTypeId;
+    }
+
+    static TypeId specTypeId;
 
 private:
-    std::string_view typeName;
+    std::optional<ValueType> storedValue;
+};
 
-    static std::unique_ptr<std::unordered_map<std::string_view, const TypeIdBase*>> types;
+template <typename T> TypeId SpecTypeValueHolder<T>::specTypeId;
+
+
+template <typename T>
+class SpecTypeValueHolder<T&> : public TypeValueHolder<T>
+{
+public:
+    using ValueType = T;
+
+    void set(T& val)
+    {
+        TypeValueHolder<ValueType>::set(val);
+    }
+
+    const TypeId& getSpecTypeId() const
+    {
+        return specTypeId;
+    }
+
+    static TypeId specTypeId;
+};
+
+template <typename T> TypeId SpecTypeValueHolder<T&>::specTypeId;
+
+
+template <typename T>
+class ValueTraits
+{
+public:
+    using SpecTypeHolder = SpecTypeValueHolder<T>;
+    using ValueType = SpecTypeHolder::ValueType;
+    using ValueRef = SpecTypeHolder::ValueRef;
+
+	static ValueRef get(ValueHolder& holder)
+    {
+        return static_cast<TypeValueHolder<ValueType>&>(holder).get();
+    }
+
+    static void set(ValueHolder& holder, T val)
+    {
+        static_cast<SpecTypeHolder&>(holder).set(std::forward<T>(val));
+    }
 };
 
 }

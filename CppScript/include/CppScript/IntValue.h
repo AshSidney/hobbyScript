@@ -1,6 +1,7 @@
 #pragma once
 
 #include <CppScript/Definitions.h>
+#include <CppScript/Execution.h>
 
 #include <string>
 #include <optional>
@@ -17,6 +18,29 @@ public:
 	DivideByZeroExpection();
 };
 
+enum class Comparison
+{
+	Less = -1,
+	Equal = 0,
+	Greater = 1
+};
+
+constexpr Comparison invert(const Comparison comp)
+{
+	return static_cast<Comparison>(-static_cast<int>(comp));
+}
+
+template <> struct JumpTableTraits<Comparison>
+{
+	static constexpr size_t size = 3;
+
+	static constexpr int index(const Comparison val)
+	{
+		return static_cast<int>(val) - static_cast<int>(Comparison::Less);
+	}
+};
+
+
 class CPPSCRIPT_API IntValue
 {
 public:
@@ -25,6 +49,12 @@ public:
 
 	IntValue(StdIntType value);
 	IntValue(std::string_view value);
+
+	IntValue(const IntValue& otherValue) = default;
+	IntValue(IntValue&& otherValue) = default;
+	
+	IntValue& operator=(const IntValue& otherValue) = default;
+	IntValue& operator=(IntValue&& otherValue) = default;
 	
 	IntValue& operator+=(const IntValue& otherValue);
 	IntValue& operator-=(const IntValue& otherValue);
@@ -32,6 +62,7 @@ public:
 	IntValue& operator/=(const IntValue& otherValue);
 	IntValue& operator%=(const IntValue& otherValue);
 
+	friend Comparison compare(const IntValue& left, const IntValue& right);
 	friend bool operator==(const IntValue& left, const IntValue& right);
 	friend bool operator<(const IntValue& left, const IntValue& right);
 	friend IntValue operator-(const IntValue& value);
@@ -57,6 +88,7 @@ private:
 
 		void clear();
 
+		Comparison compare(const NumSegments& other, Comparison less = Comparison::Less, Comparison greater = Comparison::Greater) const;
 		bool equal(const NumSegments& other) const;
 		bool less(const NumSegments& other) const;
 		bool isZero() const;
@@ -84,6 +116,7 @@ private:
 
 IntValue operator ""_I(const char* value);
 
+Comparison compare(const IntValue& left, const IntValue& right);
 bool operator==(const IntValue& left, const IntValue& right);
 bool operator<(const IntValue& left, const IntValue& right);
 IntValue operator+(const IntValue& left, const IntValue& right);
@@ -94,83 +127,6 @@ IntValue operator/(const IntValue& left, const IntValue& right);
 IntValue operator%(const IntValue& left, const IntValue& right);
 
 std::ostream& operator<<(std::ostream& stream, const IntValue& value);
-
-
-class IntValueX
-{
-public:
-	using StandardImplType = long long;
-	using LongImplType = unsigned long long;
-
-	IntValueX(StandardImplType value);
-	IntValueX(const std::string_view& value);
-
-	std::optional<long long> get() const;
-
-	IntValueX& operator+=(const IntValueX& otherValue);
-	IntValueX& operator-=(const IntValueX& otherValue);
-
-	//friend IntValueX operator ""_I(unsigned long long value);
-	friend IntValueX operator ""_IX(const char* value);
-
-	friend bool operator==(const IntValueX& left, const IntValueX& right);
-	friend IntValueX operator+(const IntValueX& left, const IntValueX& right);
-	friend IntValueX operator-(const IntValueX& value);
-	friend IntValueX operator-(const IntValueX& left, const IntValueX& right);
-	friend std::ostream& operator<<(std::ostream& stream, const IntValueX& value);
-
-	class StandardValue
-	{
-	public:
-		StandardValue(StandardImplType intValue);
-
-		StandardImplType value;
-		bool safeMultiply;
-	};
-
-	class LongValue
-	{
-	public:
-		LongValue(StandardImplType value);
-		LongValue(std::vector<LongImplType> value, bool sign);
-
-		std::vector<LongImplType> value;
-		bool sign{ true };
-
-		/*void add(LongImplType addValue);
-		void subtract(LongImplType subValue);
-		void multiply(LongImplType multValue);*/
-		bool equal(const LongValue& otherValue) const;
-		bool lessAbs(const LongValue& otherValue) const;
-
-		void addSubtract(const LongValue& addValue, bool isAdd);
-		void addAbs(const std::vector<LongImplType>& addValue, size_t offset = 0);
-		void subtractAbs(const std::vector<LongImplType>& subValue, size_t offset = 0);
-		void multiply(const LongValue& multValue);
-		LongValue divide(const LongValue& divValue);
-
-		void shiftRight(size_t bitCount);
-		void shiftLeft(size_t bitCount);
-
-		void trim();
-	};
-
-private:
-	std::variant<StandardValue, LongValue> value{ StandardValue{0} };
-
-	void set(StandardImplType value);
-	void set(LongValue value);
-};
-
-//IntValueX operator ""_I(unsigned long long value);
-IntValueX operator ""_IX(const char* value);
-
-bool operator==(const IntValueX& left, const IntValueX& right);
-IntValueX operator+(const IntValueX& left, const IntValueX& right);
-IntValueX operator-(const IntValueX& left, const IntValueX& right);
-IntValueX operator-(const IntValueX& value);
-
-std::ostream& operator<<(std::ostream& stream, const IntValueX& value);
 
 }
 

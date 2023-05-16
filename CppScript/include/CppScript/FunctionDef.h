@@ -5,136 +5,131 @@
 #include <memory>
 #include <vector>
 #include <tuple>
+#include <unordered_map>
 
 namespace CppScript
 {
 
-template <typename T>
-class ObjectAccessor
-{
-protected:
-    using Result = T&;
-
-	Result get(void* ptr) const
-    {
-        return *reinterpret_cast<T*>(ptr);
-    }
-};
-
-template <typename T>
-class ObjectAccessor<T&>
-{
-protected:
-    using Result = T&;
-
-	Result get(void* ptr) const
-    {
-        return *reinterpret_cast<T*>(ptr);
-    }
-};
-
-
-template <typename T>
-class StraightObjectAccessor : public MemoryPlace, public ObjectAccessor<T>
-{
-public:
-	StraightObjectAccessor<T>(MemoryPlace place) : MemoryPlace(place)
-    {}
-
-	ObjectAccessor<T>::Result get(const ExecutionContext& context) const
-    {
-        return ObjectAccessor<T>::get(context.get(*this));
-    }
-};
-
-
-enum class FunctionSpec
+enum class FunctionOptions
 {
     Default = 0,
-    ReturnVoid = 1,
-    CacheMemory = 2
+    Cache = 1,
+    Jump = 2
 };
 
-constexpr FunctionSpec operator|(const FunctionSpec left, const FunctionSpec right)
+constexpr FunctionOptions operator|(const FunctionOptions left, const FunctionOptions right)
 {
-    return static_cast<FunctionSpec>(static_cast<size_t>(left) | static_cast<size_t>(right));
+    return static_cast<FunctionOptions>(static_cast<size_t>(left) | static_cast<size_t>(right));
 }
 
-constexpr FunctionSpec operator&(const FunctionSpec left, const FunctionSpec right)
+constexpr FunctionOptions operator&(const FunctionOptions left, const FunctionOptions right)
 {
-    return static_cast<FunctionSpec>(static_cast<size_t>(left) & static_cast<size_t>(right));
+    return static_cast<FunctionOptions>(static_cast<size_t>(left) & static_cast<size_t>(right));
 }
 
-constexpr bool Contains(const FunctionSpec left, const FunctionSpec right)
+constexpr bool contains(const FunctionOptions left, const FunctionOptions right)
 {
-    return (left & right) != FunctionSpec::Default;
+    return (left & right) != FunctionOptions::Default;
 }
 
-class FunctionContext
+
+struct FunctionContext
+{
+    std::string name;
+    FunctionOptions options;
+    PlaceData returnPlace;
+    std::vector<PlaceData> argPlaces;
+    std::vector<int> jumps;
+    CodeBlock* currentBlock;
+};
+
+
+template <typename T>
+class StraightObjectAccessor : public PlaceData
 {
 public:
-    FunctionContext(FunctionSpec spec) : funcSpec(spec)
-    {}
-
-    //void registerdCachedAccessor(CacheObjectAccessor& accessor);
-
-    bool mustReturn() const
+    void init(const PlaceData place, FunctionContext& context)
     {
-        return !Contains(funcSpec, FunctionSpec::ReturnVoid);
+        argType = place.argType;
+        offset = place.offset;
     }
 
-    bool useCache() const
+    using ValueAccess = ValueTraits<T>;
+    using ValueRef = ValueAccess::ValueRef;
+
+	ValueRef get(const ExecutionContext& context) const
     {
-        return Contains(funcSpec, FunctionSpec::CacheMemory);
+        return ValueAccess::get(context.get(*this));
     }
 
-private:
-    FunctionSpec funcSpec;
+    void set(const ExecutionContext& context, T val) const
+    {
+        ValueAccess::set(context.get(*this), std::forward<T>(val));
+    }
 };
 
 
-class CPPSCRIPT_API FunctionBase
+template <typename T>
+class CachedObjectAccessor : public PlaceDataCache
 {
 public:
-    virtual ~FunctionBase() = default;
+    void init(const PlaceData place, FunctionContext& context)
+    {
+        argType = place.argType;
+        offset = place.offset;
+        context.currentBlock->registerCache(*this);
+    }
 
-    virtual void execute(const ExecutionContext& context) const = 0;
+    using ValueAccess = ValueTraits<T>;
+    using ValueRef = ValueAccess::ValueRef;
+
+	ValueRef get(const ExecutionContext& context) const
+    {
+        return ValueAccess::get(*valueHolder);
+    }
+
+    void set(const ExecutionContext& context, T val) const
+    {
+        ValueAccess::set(*valueHolder, std::forward<T>(val));
+    }
 };
 
 
-class CPPSCRIPT_API FunctionDefBase
+class CPPSCRIPT_API Function
 {
 public:
-    virtual ~FunctionDefBase() = default;
+    virtual ~Function() = default;
 
-    virtual std::unique_ptr<FunctionBase> createFunction(FunctionContext& context, const std::vector<MemoryPlace>& places) const = 0;
+    virtual void execute(ExecutionContext& context) const = 0;
 };
 
 
 template <typename F, template<typename> typename O, typename ...A>
-class Function : public FunctionBase
+class FunctionVoid : public Function
 {
 public:
-    Function(F func, const std::vector<MemoryPlace>& places)
-        : function(func), arguments(createArguments(places, std::index_sequence_for<A...>()))
-    {}
-
-    void execute(const ExecutionContext& context) const override
+    FunctionVoid(F func, FunctionContext& context)
+        : function(func)
     {
-        executeImpl(context, std::index_sequence_for<A...>());
+        init(context, std::index_sequence_for<A...>());
     }
 
-private:
+    void execute(ExecutionContext& context) const
+    {
+        return executeVoid(context, std::index_sequence_for<A...>());
+    }
+
+protected:
     template <size_t ...I>
-    void executeImpl(const ExecutionContext& context, std::index_sequence<I...>) const
+    void init(FunctionContext& context, std::index_sequence<I...>)
+    {
+        (std::get<I>(arguments).init(context.argPlaces[I], context), ...);
+    }
+
+    template <size_t ...I>
+    void executeVoid(ExecutionContext& context, std::index_sequence<I...>) const
     {
         function((std::get<I>(arguments).get(context))...);
-    }
-
-    template <size_t ...I>
-    static std::tuple<O<A>...> createArguments(const std::vector<MemoryPlace>& places, std::index_sequence<I...>)
-    {
-        return {O<A>{places[I]}...};
     }
 
     F function;
@@ -142,276 +137,191 @@ private:
 };
 
 
-template <typename F, typename ...A>
-struct FunctionBody : public FunctionDefBase
+template <typename F, template<typename> typename O, typename R, typename ...A>
+class FunctionReturn : public FunctionVoid<F, O, A...>
 {
 public:
-    FunctionBody(F func) : function(func)
-    {}
-
-    std::unique_ptr<FunctionBase> createFunction(FunctionContext& context, const std::vector<MemoryPlace>& places) const override
+    FunctionReturn(F func, FunctionContext& context)
+        : FunctionVoid<F, O, A...>(func, context)
     {
-        return places.size() != sizeof...(A) ? std::unique_ptr<FunctionBase>{}
-            : std::make_unique<Function<F, StraightObjectAccessor, A...>>(function, places);
+        returnTarget.init(context.returnPlace, context);
+    }
+
+    void execute(ExecutionContext& context) const override
+    {
+        executeRet(context, std::index_sequence_for<A...>());
     }
 
 private:
+    using FunctionVoid<F, O, A...>::function;
+    using FunctionVoid<F, O, A...>::arguments;
+
+    template <size_t ...I>
+    void executeRet(ExecutionContext& context, std::index_sequence<I...>) const
+    {
+        returnTarget.set(context, function((std::get<I>(arguments).get(context))...));
+    }
+
+    O<R> returnTarget;
+};
+
+
+template <typename F, template<typename> typename O, typename R, typename ...A>
+class FunctionJump : public FunctionVoid<F, O, A...>
+{
+public:
+    FunctionJump(F func, FunctionContext& context)
+        : FunctionVoid<F, O, A...>(func, context), jumpTable(context.jumps)
+    {}
+
+    void execute(ExecutionContext& context) const override
+    {
+        executeJump(context, std::index_sequence_for<A...>());
+    }
+
+private:
+    using FunctionVoid<F, O, A...>::function;
+    using FunctionVoid<F, O, A...>::arguments;
+
+    template <size_t ...I>
+    void executeJump(ExecutionContext& context, std::index_sequence<I...>) const
+    {
+        jumpTable.jump(context, function((std::get<I>(arguments).get(context))...));
+    }
+
+    JumpTable<R> jumpTable;
+};
+
+
+class CPPSCRIPT_API FunctionDef
+{
+public:
+    virtual ~FunctionDef() = default;
+
+    virtual std::unique_ptr<Function> buildFunction(FunctionContext& context) const = 0;
+};
+
+
+template <typename F, typename R, typename ...A>
+struct FunctionDefReturnArgs : public FunctionDef
+{
+public:
+    FunctionDefReturnArgs(F func) :function(func)
+    {}
+
+    std::unique_ptr<Function> buildFunction(FunctionContext& context) const override
+    {
+        if (context.returnPlace.argType != PlaceType::Void && std::is_void_v<R> || context.argPlaces.size() != sizeof...(A))
+            return {};
+        const bool useCache = contains(context.options, FunctionOptions::Cache);
+        if (contains(context.options, FunctionOptions::Jump))
+            return useCache ? CreateJumpFunction<CachedObjectAccessor>(context)
+                : CreateJumpFunction<StraightObjectAccessor>(context);
+        if (context.returnPlace.argType != PlaceType::Void)
+            return useCache ? CreateReturnFunction<CachedObjectAccessor>(context)
+                : CreateReturnFunction<StraightObjectAccessor>(context);
+        return useCache ? CreateVoidFunction<CachedObjectAccessor>(context)
+            : CreateVoidFunction<StraightObjectAccessor>(context);
+    }
+
+private:
+    template <template<typename> typename O>
+    std::unique_ptr<Function> CreateVoidFunction(FunctionContext& context) const
+    {
+        return std::make_unique<FunctionVoid<F, O, A...>>(function, context);
+    }
+
+    template <template<typename> typename O>
+    std::unique_ptr<Function> CreateReturnFunction(FunctionContext& context) const
+    {
+        std::unique_ptr<Function> func;
+        if constexpr(!std::is_void_v<R>)
+            func = std::make_unique<FunctionReturn<F, O, R, A...>>(function, context);
+        return func;
+    }
+
+    template <template<typename> typename O>
+    std::unique_ptr<Function> CreateJumpFunction(FunctionContext& context) const
+    {
+        std::unique_ptr<Function> func;
+        if constexpr(!std::is_void_v<R> && JumpTableTraits<R>::size > 0)
+            func = std::make_unique<FunctionJump<F, O, R, A...>>(function, context);
+        return func;
+    }
+
     F function;
 };
 
 
-class FunctionDef : public FunctionDefBase
+class CPPSCRIPT_API Module
 {
 public:
-    template<typename R, typename C, typename ...A>
-    FunctionDef(R(C::*method)(A...))
+    Module(std::string_view name);
+
+    std::unique_ptr<Function> buildFunction(FunctionContext& context) const;
+
+    template <typename F, typename R, typename ...A>
+    Module& defFunction(const std::string& name, F func)
     {
-        if constexpr(!std::is_void_v<R>)
+        functions[name].emplace_back(std::make_unique<FunctionDefReturnArgs<F, R, A...>>(std::move(func)));
+
+        return *this;
+    }
+
+    template <typename C, typename ...A>
+    Module& defConstructor(const std::string& name)
+    {
+        auto func = [](A ...args) -> C
         {
-            auto retFunc = [method](R& ret, C& obj, A ...args)
-                {
-                    ret = (obj.*method)(std::forward<A>(args)...);
-                };
-            returnFunction = std::make_unique<FunctionBody<decltype(retFunc), R, C, A...>>(std::move(retFunc));
-        }
-        auto voidFunc = [method](C& obj, A ...args)
-            {
-                (obj.*method)(std::forward<A>(args)...);
-            };
-        voidFunction = std::make_unique<FunctionBody<decltype(voidFunc), C, A...>>(std::move(voidFunc));
+            return C(args...);
+        };
+        return defFunction<decltype(func), C, A...>(name, std::move(func));
     }
 
-    template<typename R, typename C, typename ...A>
-    FunctionDef(R(C::*method)(A...) const)
+    template <typename R, typename C, typename ...A>
+    Module& defFunction(const std::string& name, R(C::*method)(A...))
     {
-        if constexpr(!std::is_void_v<R>)
+        auto func = [method](C& obj, A ...args) -> R
         {
-            auto retFunc = [method](R& ret, const C& obj, A ...args)
-                {
-                    ret = (obj.*method)(std::forward<A>(args)...);
-                };
-            returnFunction = std::make_unique<FunctionBody<decltype(retFunc), R, C, A...>>(std::move(retFunc));
-        }
-        auto voidFunc = [method](const C& obj, A ...args)
-            {
-                (obj.*method)(std::forward<A>(args)...);
-            };
-        voidFunction = std::make_unique<FunctionBody<decltype(voidFunc), C, A...>>(std::move(voidFunc));
+            return (obj.*method)(std::forward<A>(args)...);
+        };
+        return defFunction<decltype(func), R, C, A...>(name, std::move(func));
     }
 
-    template<typename R, typename ...A>
-    FunctionDef(R(*function)(A...))
+    template <typename R, typename C, typename ...A>
+    Module& defFunction(const std::string& name, R(C::*method)(A...) const)
     {
-        if constexpr(!std::is_void_v<R>)
+        auto func = [method](const C& obj, A ...args) -> R
         {
-            auto retFunc = [function](R& ret, A ...args)
-                {
-                    ret = (*function)(std::forward<A>(args)...);
-                };
-            returnFunction = std::make_unique<FunctionBody<decltype(retFunc), R, A...>>(std::move(retFunc));
-        }
-        auto voidFunc = [function](A ...args)
-            {
-                (*function)(std::forward<A>(args)...);
-            };
-        voidFunction = std::make_unique<FunctionBody<decltype(voidFunc), A...>>(std::move(voidFunc));
+            return (obj.*method)(std::forward<A>(args)...);
+        };
+        return defFunction<decltype(func), R, C, A...>(name, std::move(func));
     }
 
-    bool hasReturn() const
+    template <typename R, typename ...A>
+    Module& defFunction(const std::string& name, R(*function)(A...))
     {
-        return static_cast<bool>(returnFunction);
+        auto func = [function](A ...args) -> R
+        {
+            return (*function)(std::forward<A>(args)...);
+        };
+        return defFunction<decltype(func), R, A...>(name, std::move(func));
     }
 
-    std::unique_ptr<FunctionBase> createFunction(FunctionContext& context, const std::vector<MemoryPlace>& places) const override
+    template <typename V>
+    Module& defValue(const std::string& name, V value)
     {
-        return context.mustReturn() ? returnFunction->createFunction(context, places)
-            : voidFunction->createFunction(context, places);
+        auto func = [value]() -> V
+        {
+            return value;
+        };
+        return defFunction<decltype(func), V>(name, std::move(func));
     }
 
 private:
-    std::unique_ptr<FunctionDefBase> returnFunction;
-    std::unique_ptr<FunctionDefBase> voidFunction;
+    std::string name;
+    std::unordered_map<std::string, std::vector<std::unique_ptr<FunctionDef>>> functions;
 };
 
-/*template <typename O, size_t I, typename A>
-struct MemoryPlaceArgument
-{
-    static O<A> Create(const std::vector<MemoryPlace>& places)
-    {
-        return {places[I]};
-    }
-};
-
-template <typename O, typename I, typename ...A>
-struct MemoryPlaceArguments;
-
-template <typename O, size_t ...I, typename ...A>
-struct MemoryPlaceArguments<O, std::index_sequence<I...>, A...>
-    : MemoryPlaceArgument<O, I, A>...
-{
-    template<size_t ID>
-    auto Create()
-    {
-        return MemoryPlaceArgument<O, ID>::Create(places);
-    }
-
-    const std::vector<MemoryPlace>& places;
-};
-
-
-template <typename F>
-class FunctionDef
-{
-public:
-    FunctionDef(F func) : function(func)
-    {}
-
-    template<typename O, typename ...A>
-    std::unique_ptr<FunctionBase> createFunction(const std::vector<MemoryPlace>& places) const
-    {
-        return createFunctionImpl(MemoryPlaceArguments<O, std::index_sequence_for<A...>, A...>{places});
-    }
-
-private:
-    template <typename PA, size_t ...I>
-    std::unique_ptr<FunctionBase> createFunctionImpl(const PA& placeArguments, std::index_sequence<I...>) const
-    {
-        return std::make_unique<Function<F, A...>>(function, StraightObjectAccessor<A>(places[I])...);+
-    }
-
-    F function;
-};*/
-
-
-/*template <typename R, typename C, typename ...A>
-class MethodDef : public FunctionDefBase
-{
-public:
-    using MethodPtr = R(C::*)(A...);
-    using ConstMethodPtr = R(C::*)(A...) const;
-
-    MethodDef(MethodPtr m) : method(m)
-    {}
-
-    std::unique_ptr<FunctionBase> createFunction(FunctionSpec spec, const std::vector<MemoryPlace>& places) const override
-    {
-        if constexpr(!std::is_void_v<R>)
-            return createFunctionImpl(places, std::make_index_sequence<sizeof...(A)>());
-        return createVoidFunctionImpl(places, std::make_index_sequence<sizeof...(A)>());
-    }
-
-private:
-    template <size_t ...I>
-    std::unique_ptr<FunctionBase> createFunctionImpl(const std::vector<MemoryPlace>& places, std::index_sequence<I...>) const
-    {
-        auto* function = new Function([method=method](R& ret, C& obj, A ...args)
-        {
-            ret = (obj.*method)(args...);
-        }, StraightObjectAccessor<R>(places[0]), StraightObjectAccessor<C>(places[1]), StraightObjectAccessor<A>(places[I + 2])...);
-        return std::unique_ptr<FunctionBase>(function);
-    }
-
-    template <size_t ...I>
-    std::unique_ptr<FunctionBase> createVoidFunctionImpl(const std::vector<MemoryPlace>& places, std::index_sequence<I...>) const
-    {
-        auto* function = new Function([method=method](C& obj, A ...args)
-        {
-            (obj.*method)(args...);
-        }, StraightObjectAccessor<C>(places[0]), StraightObjectAccessor<A>(places[I + 1])...);
-        return std::unique_ptr<FunctionBase>(function);
-    }
-
-    MethodPtr method;
-};
-
-
-template <typename R, typename ...A>
-class FunctionDef : public FunctionDefBase
-{
-public:
-    using FunctionPtr = R(*)(A...);
-
-    FunctionDef(FunctionPtr f) : function(f)
-    {}
-
-    std::unique_ptr<FunctionBase> createFunction(FunctionSpec spec, const std::vector<MemoryPlace>& places) const override
-    {
-        return createFunctionImpl(places, std::make_index_sequence<sizeof...(A)>());
-    }
-
-private:
-    template <size_t ...I>
-    std::unique_ptr<FunctionBase> createFunctionImpl(const std::vector<MemoryPlace>& places, std::index_sequence<I...>) const
-    {
-        auto* funct = new Function([function=function](R& ret, A ...args)
-        {
-            ret = (*function)(args...);
-        }, StraightObjectAccessor<R>(places[0]), StraightObjectAccessor<A>(places[I + 1])...);
-        return std::unique_ptr<FunctionBase>(funct);
-    }
-
-    FunctionPtr function;
-};*/
-
-
-
-
-
-/*enum class Specifier
-{
-    None = 0,
-    Const = 1
-};
-
-constexpr bool operator==(const Specifier left, const Specifier right)
-{
-    return static_cast<unsigned int>(left) == static_cast<unsigned int>(right);
-}
-
-constexpr Specifier operator|(const Specifier left, const Specifier right)
-{
-    return static_cast<Specifier>(static_cast<unsigned int>(left) | static_cast<unsigned int>(right));
-}
-
-
-template <class T, typename R, typename ...A, Specifier ...spec>
-struct MethodSignature
-template <class T, typename R, typename ...A>
-class MethodDef
-{
-public:
-	using MethodType = R(T::*)(A ...args);
-
-	MethodDef(MethodType methPtr, ObjectAccessor<T> thisAccess, ObjectAccessor<R> retAccess, ObjectAccessor<A> ...argAccess)
-        : method(methPtr), thisAccessor(thisAccess), returnAccessor(retAccess), argAccessor(argAccess...)
-    {}
-
-    void operator()()
-    {
-        returnAccessor.get() = (thisAccessor.get().*method)();
-    }
-
-    MemoryAccessor& getThis()
-    {
-        return thisAccessor;
-    }
-
-    MemoryAccessor& getReturn()
-    {
-        return returnAccessor;
-    }
-
-    template <size_t I>
-    MemoryAccessor& getArgument()
-    {
-        return std::get<I>(argAccessor);
-    }
-
-private:
-    MethodType method;
-    ObjectAccessor<T> thisAccessor;
-    ObjectAccessor<R> returnAccessor;
-    std::tuple<ObjectAccessor<A>...> argAccessor;
-};*/
 
 }

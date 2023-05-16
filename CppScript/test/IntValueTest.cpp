@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <CppScript/IntValue.h>
+#include "Fibonacci.h"
 
 using namespace CppScript;
 
@@ -52,12 +53,28 @@ TEST(IntValueTest, CreateLiteral)
 	EXPECT_EQ(toString(bigValue, { std::hex }), "-123456789abcdef01234");
 }
 
+TEST(IntValueTest, Compare)
+{
+	EXPECT_EQ(compare(98765432109876543210_I, 98765432109876543210_I), Comparison::Equal);
+	EXPECT_EQ(compare(98765432109876543210_I, 98765432109876543211_I), Comparison::Less);
+	EXPECT_EQ(compare(98765432109876543210_I, 98765432109876543200_I), Comparison::Greater);
+	EXPECT_EQ(compare(-98765432109876543210_I, 98765432109876543210_I), Comparison::Less);
+	EXPECT_EQ(compare(-98765432109876543210_I, 98765432109876543211_I), Comparison::Less);
+	EXPECT_EQ(compare(-98765432109876543210_I, 98765432109876543200_I), Comparison::Less);
+	EXPECT_EQ(compare(-98765432109876543210_I, -98765432109876543210_I), Comparison::Equal);
+	EXPECT_EQ(compare(-98765432109876543210_I, -98765432109876543211_I), Comparison::Greater);
+	EXPECT_EQ(compare(-98765432109876543210_I, -98765432109876543200_I), Comparison::Less);
+	EXPECT_EQ(compare(98765432109876543210_I, -98765432109876543210_I), Comparison::Greater);
+	EXPECT_EQ(compare(98765432109876543210_I, -98765432109876543211_I), Comparison::Greater);
+	EXPECT_EQ(compare(98765432109876543210_I, -98765432109876543200_I), Comparison::Greater);
+}
+
 TEST(IntValueTest, Add)
 {
 	EXPECT_EQ(369258_I + 741852963_I, 742222221_I);
 	EXPECT_EQ(7'538'691'4275'386_I + 789'012'369'874'569'874'123_I, 789'012'445'261'484'149'509_I);
-	EXPECT_EQ(IntValueX{ "75386914275386000000" } + IntValueX{ 123456 }, IntValueX{ "75386914275386123456" });
-	EXPECT_EQ(IntValueX{ "9516237849516237840951623" } + IntValueX{ "-0xabcdef0123456789ab" }, IntValueX{ "9513068617199085298655132" });
+	EXPECT_EQ(IntValue{ "75386914275386000000" } + IntValue{ 123456 }, IntValue{ "75386914275386123456" });
+	EXPECT_EQ(IntValue{ "9516237849516237840951623" } + IntValue{ "-0xabcdef0123456789ab" }, IntValue{ "9513068617199085298655132" });
 }
 
 TEST(IntValueTest, Subtract)
@@ -119,76 +136,15 @@ TEST(IntValueTest, DivideAndModulo_MultipleTimes)
 }
 
 
-template <typename T> T fibonacci(size_t count)
-{
-	T first{0};
-	if (count == 0)
-		return first;
-	T second{1};
-	for (--count; count > 0; --count)
-	{
-		first += second;
-		std::swap(first, second);
-	}
-	return second;
-}
-
-template <typename T> T fibonacciPtr(size_t count)
-{
-	IntValue frst {0};
-	if (count == 0)
-		return frst;
-	IntValue scnd {1};
-	IntValue* first = &frst;
-	IntValue* second = &scnd;
-	for (--count; count > 0; --count)
-	{
-		*first += *second;
-		std::swap(first, second);
-	}
-	return *second;
-}
-
-IntValue::SegType fibonacciSegType(size_t count)
-{
-	IntValue::SegType first{0};
-	if (count == 0)
-		return first;
-	IntValue::SegType second{1};
-	for (--count; count > 0; --count)
-	{
-		IntValue::SegType temp;
-		std::tie(first, temp) = IntValue::add(first, second);
-		std::swap(first, second);
-	}
-	return second;
-}
-
-template <typename T> T fibonacci2(int count)
-{
-	T first{0};
-	T second{1};
-	for (; count > 1; count -= 2)
-	{
-		first += second;
-		second += first;
-	}
-	return count == 0 ? first : second;
-}
-
-const char fib50[] = "12586269025";
-const char fib100[] = "354224848179261915075";
-const char fib200[] = "280571172992510140037611932413038677189525";
-const char fib1000[] = "434665576869374564356885276750406258025646605173717804024817290895365554179490518904038798400\
-79255169295922593080322634775209689623239873322471161642996440906533187938298969649928516003704476137795166849228875";
-
 TEST(IntValueTest, Fibonacci)
 {
-	EXPECT_EQ(fibonacci<IntValue>(5), 5_I);
-	EXPECT_EQ(fibonacci<IntValue>(10), 55_I);
-	EXPECT_EQ(fibonacci<IntValue>(50), IntValue{fib50});
-	EXPECT_EQ(fibonacci<IntValue>(100), IntValue{fib100});
-	EXPECT_EQ(fibonacci<IntValue>(200), IntValue{fib200});
+	EXPECT_EQ(fibonacci2<IntValue>(5), 5_I);
+	EXPECT_EQ(fibonacci2<IntValue>(10), 55_I);
+	EXPECT_EQ(fibonacci2<IntValue>(50), IntValue{fib50});
+	EXPECT_EQ(fibonacci2<IntValue>(89), IntValue{fib89});
+	EXPECT_EQ(fibonacci2<IntValue>(100), IntValue{fib100});
+	EXPECT_EQ(fibonacci2<IntValue>(200), IntValue{fib200});
+	EXPECT_EQ(fibonacci2<IntValue>(1000), IntValue{fib1000});
 }
 
 TEST(IntValuePerformanceTest, Fibonacci_Small_SegType)
@@ -219,6 +175,13 @@ TEST(IntValuePerformanceTest, Fibonacci_Middle)
 		EXPECT_EQ(fibonacci<IntValue>(200), result);
 }
 
+TEST(IntValuePerformanceTest, Fibonacci2_Middle)
+{
+	const IntValue result { fib200 };
+	for (int i = 0; i < 100000; ++i)
+		EXPECT_EQ(fibonacci2<IntValue>(200), result);
+}
+
 TEST(IntValuePerformanceTest, Fibonacci_Big)
 {
 	const IntValue result { fib1000 };
@@ -226,134 +189,51 @@ TEST(IntValuePerformanceTest, Fibonacci_Big)
 		EXPECT_EQ(fibonacci<IntValue>(1000), result);
 }
 
+TEST(IntValuePerformanceTest, Fibonacci2_Big)
+{
+	const IntValue result { fib1000 };
+	for (int i = 0; i < 100000; ++i)
+		EXPECT_EQ(fibonacci2<IntValue>(1000), result);
+}
+
 TEST(IntValuePerformanceTest, Fibonacci_SmallPtr)
 {
 	const IntValue result { fib50 };
 	for (int i = 0; i < 100000; ++i)
-		EXPECT_EQ(fibonacciPtr<IntValue>(50), result);
+		EXPECT_EQ(fibonacciPtr(50), result);
 }
 
 TEST(IntValuePerformanceTest, Fibonacci_MiddlePtr)
 {
 	const IntValue result { fib200 };
 	for (int i = 0; i < 100000; ++i)
-		EXPECT_EQ(fibonacciPtr<IntValue>(200), result);
+		EXPECT_EQ(fibonacciPtr(200), result);
 }
 
 TEST(IntValuePerformanceTest, Fibonacci_BigPtr)
 {
 	const IntValue result { fib1000 };
 	for (int i = 0; i < 100000; ++i)
-		EXPECT_EQ(fibonacciPtr<IntValue>(1000), result);
+		EXPECT_EQ(fibonacciPtr(1000), result);
 }
 
-using topBitFnc = unsigned int(IntValue::SegType);
-unsigned int evalTopBit(topBitFnc fnc)
+TEST(IntValuePerformanceTest, Fibonacci2_SmallPtr)
 {
-	unsigned int rslt = 0;
-	for (unsigned int bit = 16; bit < 64; ++bit)
-		for (IntValue::SegType val = 0; val < 50000; ++val)
-			rslt = fnc((1ull << bit) + val);
-	return rslt;
-}
-
-
-
-
-IntValueX::LongValue fibonacci2(size_t count)
-{
-	IntValueX::LongValue first{ 0 };
-	if (count == 0)
-		return first;
-	IntValueX::LongValue second{ 1 };
-	for (--count; count > 0; --count)
-	{
-		first.addSubtract(second, true);
-		std::swap(first, second);
-	}
-	return second;
-}
-
-IntValueX::StandardValue fibonacci3(size_t count)
-{
-	IntValueX::StandardValue first{ 0 };
-	if (count == 0)
-		return first;
-	IntValueX::StandardValue second{ 1 };
-	for (--count; count > 0; --count)
-	{
-		first.value += second.value;
-		std::swap(first, second);
-	}
-	return second;
-}
-
-IntValueX::StandardValue fibonacci4(size_t count)
-{
-	IntValueX::StandardValue first{ 0 };
-	if (count == 0)
-		return first;
-	IntValueX::StandardValue second{ 1 };
-	for (--count; count > 0; --count)
-	{
-		first.value += second.value;
-		std::swap(first.value, second.value);
-	}
-	return second;
-}
-
-TEST(IntValueXTest, Fibonacci_Performance0Small)
-{
-	const long long result{ 12586269025 };
-	for (int i = 0; i < 1000000; ++i)
-		EXPECT_EQ(fibonacci<long long>(50), result);
-}
-
-TEST(IntValueXTest, Fibonacci_Performance1Small)
-{
-	const IntValueX result{ fib50 };
+	const IntValue result { fib50 };
 	for (int i = 0; i < 100000; ++i)
-		EXPECT_EQ(fibonacci<IntValueX>(50), result);
+		EXPECT_EQ(fibonacci2Ptr(50), result);
 }
 
-TEST(IntValueXTest, Fibonacci_Performance2Small)
+TEST(IntValuePerformanceTest, Fibonacci2_MiddlePtr)
 {
-	const IntValueX::LongValue result{ {12586269025}, true };
+	const IntValue result { fib200 };
 	for (int i = 0; i < 100000; ++i)
-		EXPECT_TRUE(fibonacci2(50).equal(result));
+		EXPECT_EQ(fibonacci2Ptr(200), result);
 }
 
-TEST(IntValueXTest, Fibonacci_Performance3Small)
+TEST(IntValuePerformanceTest, Fibonacci2_BigPtr)
 {
-	const IntValueX::StandardValue result{ 12586269025 };
+	const IntValue result { fib1000 };
 	for (int i = 0; i < 100000; ++i)
-		EXPECT_EQ(fibonacci3(50).value, result.value);
-}
-
-TEST(IntValueXTest, Fibonacci_Performance4Small)
-{
-	const IntValueX::StandardValue result{ 12586269025 };
-	for (int i = 0; i < 100000; ++i)
-		EXPECT_EQ(fibonacci4(50).value, result.value);
-}
-
-TEST(IntValueXTest, Fibonacci_Performance1Mid)
-{
-	const IntValueX result{ fib200 };
-	for (int i = 0; i < 100000; ++i)
-		EXPECT_EQ(fibonacci<IntValueX>(200), result);
-}
-
-TEST(IntValueXTest, Fibonacci_Performance1Big)
-{
-	const IntValueX result{ fib1000 };
-	for (int i = 0; i < 100000; ++i)
-		EXPECT_EQ(fibonacci<IntValueX>(1000), result);
-}
-
-TEST(IntValueXTest, Fibonacci_Performance2Mid)
-{
-	const IntValueX::LongValue result{ {0xf067cb83df17e395, 0x864a5c1caeb07d0e, 0x338}, true };
-	for (int i = 0; i < 100000; ++i)
-		EXPECT_TRUE(fibonacci2(200).equal(result));
+		EXPECT_EQ(fibonacci2Ptr(1000), result);
 }

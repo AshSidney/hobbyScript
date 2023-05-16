@@ -225,20 +225,25 @@ void IntValue::NumSegments::clear()
 	values.clear();
 }
 
+Comparison IntValue::NumSegments::compare(const NumSegments& other, const Comparison less, const Comparison greater) const
+{
+	if (values.size() != other.values.size())
+		return values.size() < other.values.size() ? less : greater;
+	auto otherIt = other.values.crbegin();
+	for (auto thisIt = values.crbegin(); thisIt != values.crend(); ++thisIt, ++otherIt)
+		if (*thisIt != *otherIt)
+			return *thisIt < *otherIt ? less : greater;
+	return Comparison::Equal;
+}
+
 bool IntValue::NumSegments::equal(const NumSegments& other) const
 {
-	return values == other.values;
+	return compare(other) == Comparison::Equal;
 }
 
 bool IntValue::NumSegments::less(const NumSegments& other) const
 {
-	if (values.size() != other.values.size())
-		return values.size() < other.values.size();
-	auto otherIt = other.values.crbegin();
-	for (auto thisIt = values.crbegin(); thisIt != values.crend(); ++thisIt, ++otherIt)
-		if (*thisIt != *otherIt)
-			return *thisIt < *otherIt;
-	return false;
+	return compare(other) == Comparison::Less;
 }
 
 bool IntValue::NumSegments::isZero() const
@@ -407,25 +412,27 @@ void IntValue::NumSegments::trim()
 }
 
 
-IntValue operator ""_I(const char * value)
+IntValue operator ""_I(const char* value)
 {
 	return IntValue{ value };
 }
 
+Comparison compare(const IntValue& left, const IntValue& right)
+{
+	Comparison result = left.sign ? Comparison::Greater : Comparison::Less;
+	if (left.sign == right.sign)
+		result = left.segments.compare(right.segments, invert(result), result);
+	return result;
+}
+
 bool operator==(const IntValue& left, const IntValue& right)
 {
-	return left.sign == right.sign && left.segments.equal(right.segments);
+	return compare(left, right) == Comparison::Equal;
 }
 
 bool operator<(const IntValue& left, const IntValue& right)
 {
-	if (left.sign != right.sign)
-		return right.sign;
-	if (left == right)
-		return false;
-	if (left.sign)
-		return left.segments.less(right.segments);
-	return right.segments.less(left.segments);
+	return compare(left, right) == Comparison::Less;
 }
 
 IntValue operator+(const IntValue& left, const IntValue& right)
@@ -500,412 +507,6 @@ std::ostream& operator<<(std::ostream& stream, const IntValue& value)
 			stream << *it;
 	}
 	return stream;
-}
-
-
-
-
-
-
-IntValueX::IntValueX(StandardImplType value)
-{
-	set(value);
-}
-
-IntValueX::IntValueX(const std::string_view& value)
-{
-	LongValue longValue = 0;
-	longValue.sign = value[0] != '-';
-	size_t startIndex = value[0] != '+' && value[0] != '-' ? 0 : 1;
-	if (value.size() > startIndex + 2 && value[startIndex] == '0' && value[startIndex + 1] == 'x')
-	{
-		for (auto digit = std::next(value.begin(), startIndex + 2); digit != value.end(); ++digit)
-		{
-			LongImplType digitVal = 0;
-			if (*digit >= '0' && *digit <= '9')
-				digitVal = *digit - '0';
-			else if (*digit >= 'A' && *digit <= 'F')
-				digitVal = *digit - 'A' + 0xa;
-			else if (*digit >= 'a' && *digit <= 'f')
-				digitVal = *digit - 'a' + 0xa;
-			else
-				continue;
-			longValue.shiftLeft(4);
-			longValue.value.front() = longValue.value.front() | digitVal;
-		}
-	}
-	else
-	{
-		for (auto digit = std::next(value.begin(), startIndex); digit != value.end(); ++digit)
-			if (*digit >= '0' && *digit <= '9')
-			{
-				longValue.multiply(10);
-				longValue.addAbs({ static_cast<LongImplType>(*digit - '0') });
-			}
-	}
-	set(longValue);
-}
-
-std::optional<IntValueX::StandardImplType> IntValueX::get() const
-{
-	if (value.index() == 0)
-		return std::get<0>(value).value;
-	else
-	{
-		const auto& longValue = std::get<1>(value);
-		if (longValue.value.size() == 1
-			&& longValue.value.front() <= static_cast<LongImplType>(std::numeric_limits<StandardImplType>::max()))
-		{
-			const auto stdValue = static_cast<StandardImplType>(longValue.value.front());
-			return longValue.sign ? stdValue : -stdValue;
-		}
-	}
-	return {};
-}
-
-IntValueX& IntValueX::operator+=(const IntValueX& otherValue)
-{
-	switch (value.index() | (otherValue.value.index() << 1))
-	{
-	case 0:
-		set(std::get<0>(value).value + std::get<0>(otherValue.value).value);
-		break;
-	case 1:
-		std::get<1>(value).addSubtract(std::get<0>(otherValue.value).value, true);
-		break;
-	case 2:
-		{
-			LongValue newValue = { std::get<0>(value).value };
-			newValue.addSubtract(std::get<1>(otherValue.value), true);
-			value = std::move(newValue);
-			break;
-		}
-	case 3:
-		std::get<1>(value).addSubtract(std::get<1>(otherValue.value), true);
-		break;
-	}
-	return *this;
-}
-
-IntValueX& IntValueX::operator-=(const IntValueX& otherValue)
-{
-	switch (value.index() | (otherValue.value.index() << 1))
-	{
-	case 0:
-		set(std::get<0>(value).value - std::get<0>(otherValue.value).value);
-		break;
-	case 1:
-		std::get<1>(value).addSubtract(std::get<0>(otherValue.value).value, false);
-		break;
-	case 2:
-		{
-			LongValue newValue = { std::get<0>(value).value };
-			newValue.addSubtract(std::get<1>(otherValue.value), false);
-			value = std::move(newValue);
-			break;
-		}
-	case 3:
-		std::get<1>(value).addSubtract(std::get<1>(otherValue.value), false);
-		break;
-	}
-	return *this;
-}
-
-
-/*IntValueX operator ""_I(unsigned long long value)
-{
-	if (value <= static_cast<LongImplType>(std::numeric_limits<StandardImplType>::max()))
-		return IntValueX{ static_cast<StandardImplType>(value) };
-	IntValueX result{ 0 };
-	result.set(IntValueX::LongValue{ {value}, true });
-	return result;
-}*/
-
-IntValueX operator ""_IX(const char * value)
-{
-	return IntValueX{ value };
-}
-
-bool operator==(const IntValueX& left, const IntValueX& right)
-{
-	if (left.value.index() != right.value.index())
-		return false;
-	return (left.value.index() == 0) ? std::get<0>(left.value).value == std::get<0>(right.value).value
-		: std::get<1>(left.value).equal(std::get<1>(right.value));
-}
-
-IntValueX operator+(const IntValueX& left, const IntValueX& right)
-{
-	auto sum = left;
-	sum += right;
-	return sum;
-}
-
-IntValueX operator-(const IntValueX& left, const IntValueX& right)
-{
-	auto diff = left;
-	diff -= right;
-	return diff;
-}
-
-IntValueX operator-(const IntValueX& value)
-{
-	auto negValue = value;
-	if (negValue.value.index() == 0)
-		std::get<0>(negValue.value).value = -std::get<0>(negValue.value).value;
-	else
-		std::get<1>(negValue.value).sign = !std::get<1>(negValue.value).sign;
-	return negValue;
-}
-
-
-std::ostream& operator<<(std::ostream& stream, const IntValueX& value)
-{
-	const auto simpleValue = value.get();
-	if (simpleValue)
-		stream << *simpleValue;
-	else
-	{
-		const auto longValue = std::get<1>(value.value);
-		if (!longValue.sign)
-			stream << "-";
-
-		if ((stream.flags() & std::ios::hex) != 0)
-		{
-			bool showBase = (stream.flags() & std::ios::showbase) != 0;
-			for (auto it = longValue.value.crbegin(); it != longValue.value.crend(); ++it)
-				stream << *it << std::noshowbase;
-			if (showBase)
-				stream << std::showbase;
-		}
-		else
-		{
-			auto remValue = longValue;
-			const IntValueX::LongValue zero{ 0 };
-			std::vector<char> invRepr;
-			while (zero.lessAbs(remValue))
-			{
-				auto newRemValue = remValue.divide(10);
-				invRepr.push_back(static_cast<char>(remValue.value.front()) + '0');
-				remValue = std::move(newRemValue);
-			}
-			for (auto it = invRepr.crbegin(); it != invRepr.crend(); ++it)
-				stream << *it;
-		}
-	}
-	return stream;
-}
-
-void IntValueX::set(StandardImplType value)
-{
-	if (value <= StandardMax && value >= -StandardMax)
-		this->value = StandardValue{ value };
-	else
-		this->value = LongValue{ value };
-}
-
-void IntValueX::set(LongValue value)
-{
-	if (value.value.size() == 1 && value.value[0] <= StandardMax)
-	{
-		const StandardImplType newValue = static_cast<StandardImplType>(value.value[0]);
-		this->value = StandardValue{ value.sign ? newValue : -newValue };
-	}
-	else
-		this->value = std::move(value);
-}
-
-
-IntValueX::StandardValue::StandardValue(StandardImplType intValue)
-	: value(intValue), safeMultiply(value <= StandardMultMax && value >= -StandardMultMax)
-{}
-
-
-IntValueX::LongValue::LongValue(StandardImplType value)
-	: value{static_cast<LongImplType>(std::abs(value))}, sign{value >= 0}
-{}
-
-IntValueX::LongValue::LongValue(std::vector<LongImplType> value, bool sign)
-	: value(std::move(value)), sign(sign)
-{}
-
-bool IntValueX::LongValue::equal(const LongValue& otherValue) const
-{
-	return sign == otherValue.sign && value == otherValue.value;
-}
-
-bool IntValueX::LongValue::lessAbs(const LongValue& otherValue) const
-{
-	if (value.size() != otherValue.value.size())
-		return value.size() < otherValue.value.size();
-	auto otherIt = otherValue.value.rbegin();
-	for (auto thisIt = value.rbegin(); thisIt != value.rend(); ++thisIt, ++otherIt)
-		if (*thisIt != *otherIt)
-			return *thisIt < *otherIt;
-	return false;
-}
-
-void IntValueX::LongValue::addSubtract(const LongValue& rightValue, bool isAdd)
-{
-	if ((sign == rightValue.sign) == isAdd)
-		addAbs(rightValue.value);
-	else
-	{
-		if (lessAbs(rightValue))
-		{
-			const LongValue tempValue{ std::move(value), true };
-			value = rightValue.value;
-			sign = rightValue.sign == isAdd;
-			subtractAbs(tempValue.value);
-		}
-		else
-		{
-			subtractAbs(rightValue.value);
-		}
-		trim();
-	}
-}
-
-void IntValueX::LongValue::addAbs(const std::vector<LongImplType>& addValue, size_t offset)
-{
-	if (value.size() < addValue.size() + offset)
-		value.resize(addValue.size() + offset, 0);
-	LongImplType carry = 0;
-	auto part = value.begin() + offset;
-	for (auto addPart = addValue.begin(); addPart != addValue.end(); ++part, ++addPart)
-		std::tie(*part, carry) = ::add(*part, *addPart, carry);
-	for (; carry != 0 && part != value.end(); ++part)
-		std::tie(*part, carry) = ::add(*part, 0, carry);
-	if (carry != 0)
-		value.push_back(carry);
-}
-
-void IntValueX::LongValue::subtractAbs(const std::vector<LongImplType>& subValue, size_t offset)
-{
-	_ASSERT(value.size() >= subValue.size() + offset);
-	LongImplType carry = 0;
-	auto part = value.begin() + offset;
-	for (auto subPart = subValue.begin(); subPart != subValue.end(); ++part, ++subPart)
-		std::tie(*part, carry) = ::subtract(*part, *subPart, carry);
-	for (; carry != 0 && part != value.end(); ++part)
-		std::tie(*part, carry) = ::subtract(*part, 0, carry);
-	_ASSERT(carry == 0);
-}
-
-void IntValueX::LongValue::multiply(const LongValue& multValue)
-{
-	std::vector<LongImplType> resultData;
-	resultData.reserve(value.size() + multValue.value.size());
-	LongValue result{ std::move(resultData), sign == multValue.sign };
-	std::vector<LongImplType> partialResult;
-	partialResult.reserve(multValue.value.size() + 1);
-	for (size_t startIndex = 0; startIndex < value.size(); ++startIndex)
-	{
-		partialResult.clear();
-		LongImplType multCarry = 0;
-		LongImplType addCarry = 0;
-		for (auto part : multValue.value)
-		{
-			auto [partMult, newMultCarry] = ::multiply(part, value[startIndex]);
-			std::tie(partMult, addCarry) = ::add(partMult, multCarry, addCarry);
-			partialResult.push_back(partMult);
-			multCarry = newMultCarry;
-		}
-		multCarry += addCarry;
-		if (multCarry > 0)
-			partialResult.push_back(multCarry);
-		result.addAbs(partialResult, startIndex);
-	}
-	*this = std::move(result);
-}
-
-IntValueX::LongValue IntValueX::LongValue::divide(const LongValue& divValue)
-{
-	sign = sign == divValue.sign;
-	LongValue result{ {}, sign };
-	if (value.size() == 1 && divValue.value.size() == 1)
-	{
-		result.value.push_back(value.front() / divValue.value.front());
-		value.front() -= divValue.value.front() * result.value.front();
-	}
-	else
-	{
-		const LongImplType topDiv = divValue.value.back() + (divValue.value.size() == 1 ? 0 : 1);
-		value.push_back(0);
-		for (size_t topIndex = value.size() - 1; topIndex >= divValue.value.size(); --topIndex)
-		{
-			const LongImplType topLeft = (value[topIndex] << halfBitsCount) | (value[topIndex - 1] >> halfBitsCount);
-			const LongImplType topResult = topLeft / topDiv;
-			const LongImplType bottomLeft = (topLeft - topResult * topDiv) << halfBitsCount | (value[topIndex - 1] & bottomHalfMask);
-			const LongImplType bottomResult = bottomLeft / topDiv;
-			LongValue partResult{ { bottomResult + ((topResult & bottomHalfMask) << halfBitsCount), topResult >> halfBitsCount }, sign };
-			LongValue partMult = divValue;
-			partMult.multiply(partResult);
-			subtractAbs(partMult.value, topIndex - divValue.value.size());
-			partResult.addAbs(result.value, 1);
-			result = std::move(partResult);
-		}
-		trim();
-		if (divValue.lessAbs(*this))
-		{
-			result.addAbs({ 1 });
-			subtractAbs(divValue.value);
-		}
-	}
-	trim();
-	result.trim();
-	return result;
-}
-
-void IntValueX::LongValue::shiftRight(size_t bitCount)
-{
-	const size_t offset = bitCount / longBitCount;
-	if (offset >= value.size())
-	{
-		value.resize(1);
-		value.front() = 0;
-		return;
-	}
-	if (offset > 0)
-		value.erase(value.begin(), std::next(value.begin(), offset));
-
-	const size_t shift = bitCount - offset * longBitCount;
-	if (shift == 0)
-		return;
-	const size_t nextShift = longBitCount - shift;
-	auto part = value.begin();
-	for (auto nextPart = std::next(part); nextPart != value.end(); ++part, ++nextPart)
-		*part = (*part >> shift) | (*nextPart << nextShift);
-	*part = *part >> shift;
-	trim();
-}
-
-void IntValueX::LongValue::shiftLeft(size_t bitCount)
-{
-	const size_t offset = bitCount / longBitCount;
-	if (offset > 0)
-		value.insert(value.begin(), offset, 0);
-
-	const size_t shift = bitCount - offset * longBitCount;
-	if (shift == 0)
-		return;
-	const size_t nextShift = longBitCount - shift;
-	LongImplType prevPart = 0;
-	for (auto part = std::next(value.begin(), offset); part != value.end(); ++part)
-	{
-		const auto nextPart = *part >> nextShift;
-		*part = (*part << shift) | prevPart;
-		prevPart = nextPart;
-	}
-	if (prevPart != 0)
-		value.push_back(prevPart);
-}
-
-void IntValueX::LongValue::trim()
-{
-	auto topNonZero = std::find_if(value.crbegin(), value.crend(), [](auto part) {return part != 0; });
-	if (topNonZero != value.crbegin())
-		value.erase(topNonZero == value.crend() ? std::next(value.cbegin()) : topNonZero.base(), value.end());
 }
 
 }
