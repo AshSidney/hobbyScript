@@ -14,7 +14,6 @@ enum class PlaceType
 {
 	Local,
 	Module,
-	Argument,
 	Void
 };
 
@@ -23,7 +22,7 @@ class CPPSCRIPT_API PlaceData
 {
 public:
 	PlaceType argType;
-	int offset;
+	size_t offset;
 
 	static constexpr size_t typeIndex(const PlaceType argType)
 	{
@@ -44,12 +43,33 @@ protected:
 };
 
 
+class CPPSCRIPT_API DataBlock
+{
+public:
+	DataBlock(PlaceType placeType);
+
+	PlaceData addPlaceData(const TypeId& typeId);
+
+	using Frame = std::vector<std::unique_ptr<ValueHolder>>;
+	Frame createFrame() const;
+
+	using DataTypes = std::vector<const TypeId*>;
+	DataTypes dataTypes;
+
+private:
+	PlaceType placeType;
+};
+
+
 class Function;
 
 const size_t placeTypesCount { PlaceData::typeIndex(PlaceType::Void) };
 
-struct CPPSCRIPT_API CodeBlock
+class CPPSCRIPT_API CodeBlock : public DataBlock
 {
+public:
+	CodeBlock();
+
 	using Code = std::vector<std::unique_ptr<Function>>;
 	Code operations;
 	using Caches = std::array<std::vector<std::vector<PlaceDataCache*>>, placeTypesCount>;
@@ -121,8 +141,7 @@ template <typename T>
 class JumpTable
 {
 public:
-	JumpTable(const std::vector<int>& jumps) : //tableSize(JumpTableTraits<T>::size),
-		jumpTable(jumps)
+	JumpTable(const std::vector<int>& jumps) : jumpTable(jumps)
 	{}
 
 	void jump(ExecutionContext& context, const T val) const

@@ -10,4 +10,6 @@ namespace CppScript
 
 CPPSCRIPT_API Module createCoreModule();
 
+using FloatValue = long double;
+
 }

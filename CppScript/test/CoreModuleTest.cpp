@@ -13,24 +13,30 @@ class CoreModuleFixture : public testing::Test
 protected:
     Module testModule{createCoreModule()};
 
-    CodeBlock createFibonacci(ExecutionContext& context, FunctionOptions options = FunctionOptions::Default)
+    std::tuple<CodeBlock, PlaceData> createFibonacci(ExecutionContext& context, FunctionOptions options = FunctionOptions::Default)
     {
         CodeBlock code;
-        FunctionContext funcCont{"=", FunctionOptions::Default | options, {PlaceType::Void}, {{PlaceType::Local, 3}, {PlaceType::Local, 0}}, {}, &code};
+        const auto placeStart0 = code.addPlaceData(TypeValueHolder<IntValue>::typeId);
+        const auto placeStart1 = code.addPlaceData(TypeValueHolder<IntValue>::typeId);
+        const auto placeStart2 = code.addPlaceData(TypeValueHolder<IntValue>::typeId);
+        const auto placeFirst = code.addPlaceData(TypeValueHolder<IntValue>::typeId);
+        const auto placeSecond = code.addPlaceData(TypeValueHolder<IntValue>::typeId);
+        const auto placeCount = code.addPlaceData(TypeValueHolder<IntValue>::typeId);
+        FunctionContext funcCont{"=", FunctionOptions::Default | options, {PlaceType::Void}, {placeFirst, placeStart0}, {}, &code};
         code.operations.push_back(testModule.buildFunction(funcCont));
-        funcCont.argPlaces = {{PlaceType::Local, 4}, {PlaceType::Local, 1}};
+        funcCont.argPlaces = {placeSecond, placeStart1};
         code.operations.push_back(testModule.buildFunction(funcCont));
-        funcCont = {"<=>", FunctionOptions::Jump | options, {PlaceType::Void}, {{PlaceType::Local, 5}, {PlaceType::Local, 1}}, {5, 6, 1}, &code};
+        funcCont = {"<=>", FunctionOptions::Jump | options, {PlaceType::Void}, {placeCount, placeStart1}, {5, 6, 1}, &code};
         code.operations.push_back(testModule.buildFunction(funcCont));
-        funcCont = {"+=", FunctionOptions::Default | options, {PlaceType::Void}, {{PlaceType::Local, 3}, {PlaceType::Local, 4}}, {}, &code};
+        funcCont = {"+=", FunctionOptions::Default | options, {PlaceType::Void}, {placeFirst, placeSecond}, {}, &code};
         code.operations.push_back(testModule.buildFunction(funcCont));
-        funcCont = {"+=", FunctionOptions::Default | options, {PlaceType::Void}, {{PlaceType::Local, 4}, {PlaceType::Local, 3}}, {}, &code};
+        funcCont = {"+=", FunctionOptions::Default | options, {PlaceType::Void}, {placeSecond, placeFirst}, {}, &code};
         code.operations.push_back(testModule.buildFunction(funcCont));
-        funcCont = {"-=", FunctionOptions::Default | options, {PlaceType::Void}, {{PlaceType::Local, 5}, {PlaceType::Local, 2}}, {}, &code};
+        funcCont = {"-=", FunctionOptions::Default | options, {PlaceType::Void}, {placeCount, placeStart2}, {}, &code};
         code.operations.push_back(testModule.buildFunction(funcCont));
-        funcCont = {"<=>", FunctionOptions::Jump | options, {PlaceType::Void}, {{PlaceType::Local, 5}, {PlaceType::Local, 1}}, {1, 2, -3}, &code};
+        funcCont = {"<=>", FunctionOptions::Jump | options, {PlaceType::Void}, {placeCount, placeStart1}, {1, 2, -3}, &code};
         code.operations.push_back(testModule.buildFunction(funcCont));
-        funcCont = {"=", FunctionOptions::Default | options, {PlaceType::Void}, {{PlaceType::Local, 4}, {PlaceType::Local, 3}}, {}, &code};
+        funcCont = {"=", FunctionOptions::Default | options, {PlaceType::Void}, {placeSecond, placeFirst}, {}, &code};
         code.operations.push_back(testModule.buildFunction(funcCont));
 
         static SpecTypeValueHolder<IntValue> start0, start1, start2, first, second;
@@ -40,24 +46,28 @@ protected:
         first.set(0_I);
         second.set(0_I);
 
-        context.set({PlaceType::Local, 0}, start0);
-        context.set({PlaceType::Local, 1}, start1);
-        context.set({PlaceType::Local, 2}, start2);
-        context.set({PlaceType::Local, 3}, first);
-        context.set({PlaceType::Local, 4}, second);
+        context.set(placeStart0, start0);
+        context.set(placeStart1, start1);
+        context.set(placeStart2, start2);
+        context.set(placeFirst, first);
+        context.set(placeSecond, second);
 
-        return code;
+        return {std::move(code), placeCount};
     }
 };
 
-TEST_F(CoreModuleFixture, CreateIntAndAdd)
+TEST_F(CoreModuleFixture, IntCreateAndAdd)
 {
+    CodeBlock code;
+    const auto placeLocal = code.addPlaceData(TypeValueHolder<IntValue>::typeId);
+    const auto placeLit = code.addPlaceData(TypeValueHolder<std::string>::typeId);
     FunctionContext funcCont{"int", FunctionOptions::Default,
-        {PlaceType::Local, 0}, {{PlaceType::Local, 1}}};
+        placeLocal, {placeLit}, {}, &code};
     auto makeInt = testModule.buildFunction(funcCont);
+    const auto placeLocal2 = code.addPlaceData(TypeValueHolder<IntValue>::typeId);
     funcCont.name = "+=";
     funcCont.returnPlace = {PlaceType::Void, 0};
-    funcCont.argPlaces = {{PlaceType::Local, 2}, {PlaceType::Local, 0}};
+    funcCont.argPlaces = {placeLocal2, placeLocal};
     auto addInt = testModule.buildFunction(funcCont);
 
     SpecTypeValueHolder<IntValue> intVal, intVal2;
@@ -66,9 +76,9 @@ TEST_F(CoreModuleFixture, CreateIntAndAdd)
     intVal2.set(98765_I);
 
     ExecutionContext execCont;
-    execCont.set({PlaceType::Local, 0}, intVal);
-    execCont.set({PlaceType::Local, 1}, intLit);
-    execCont.set({PlaceType::Local, 2}, intVal2);
+    execCont.set(placeLocal, intVal);
+    execCont.set(placeLit, intLit);
+    execCont.set(placeLocal2, intVal2);
 
     makeInt->execute(execCont);
     addInt->execute(execCont);
@@ -77,12 +87,42 @@ TEST_F(CoreModuleFixture, CreateIntAndAdd)
     EXPECT_EQ(intVal2.get(), 111222432209_I);
 }
 
+TEST_F(CoreModuleFixture, FloatCreateAndAdd)
+{
+    CodeBlock code;
+    const auto placeLocal = code.addPlaceData(TypeValueHolder<FloatValue>::typeId);
+    const auto placeLit = code.addPlaceData(TypeValueHolder<std::string>::typeId);
+    const auto placeFloat = code.addPlaceData(TypeValueHolder<FloatValue>::typeId);
+    FunctionContext funcCont{"float", FunctionOptions::Default, placeLocal, {placeLit}, {}, &code};
+    auto makeFloat = testModule.buildFunction(funcCont);
+    funcCont.name = "+=";
+    funcCont.returnPlace = {PlaceType::Void, 0};
+    funcCont.argPlaces = {placeFloat, placeLocal};
+    auto addFloat = testModule.buildFunction(funcCont);
+
+    SpecTypeValueHolder<FloatValue> floatVal, floatVal2;
+    SpecTypeValueHolder<std::string> floatLit;
+    floatLit.set("12.34e5");
+    floatVal2.set(-78901.23);
+
+    ExecutionContext execCont;
+    execCont.set(placeLit, floatLit);
+    execCont.set(placeLocal, floatVal);
+    execCont.set(placeFloat, floatVal2);
+
+    makeFloat->execute(execCont);
+    addFloat->execute(execCont);
+
+    EXPECT_EQ(floatVal.get(), 12.34e5);
+    EXPECT_EQ(floatVal2.get(), 12.34e5 - 78901.23);
+}
+
 TEST_F(CoreModuleFixture, Fibonacci)
 {
     ExecutionContext context;
-    CodeBlock code = createFibonacci(context);
+    auto [code, placeCount] = createFibonacci(context);
     SpecTypeValueHolder<IntValue> count;
-    context.set({PlaceType::Local, 5}, count);
+    context.set(placeCount, count);
     auto& result = static_cast<TypeValueHolder<IntValue>&>(context.get({PlaceType::Local, 4}));
 
     count.set(50_I);
@@ -101,9 +141,9 @@ TEST_F(CoreModuleFixture, Fibonacci)
 TEST_F(CoreModuleFixture, Fibonacci_Cache)
 {
     ExecutionContext context;
-    CodeBlock code = createFibonacci(context, FunctionOptions::Cache);
+    auto [code, placeCount] = createFibonacci(context, FunctionOptions::Cache);
     SpecTypeValueHolder<IntValue> count;
-    context.set({PlaceType::Local, 5}, count);
+    context.set(placeCount, count);
     auto& result = static_cast<TypeValueHolder<IntValue>&>(context.get({PlaceType::Local, 4}));
 
     count.set(50_I);
@@ -125,8 +165,9 @@ class CoreModulePerformanceFixture : public CoreModuleFixture
 protected:
     void SetUp(FunctionOptions options)
     {
-        code = createFibonacci(context, options);
-        context.set({PlaceType::Local, 5}, count);
+        PlaceData placeCount;
+        std::tie(code, placeCount) = createFibonacci(context, options);
+        context.set(placeCount, count);
         result = &static_cast<TypeValueHolder<IntValue>&>(context.get({PlaceType::Local, 4}));
     }
 
@@ -231,18 +272,24 @@ TEST_F(CoreModulePerformanceFixture, Fibonacci_OldComparison)
         .defFunction("swap", &swap)
         .defFunction(">", &greater);
 
-    FunctionContext funcCont{"=", FunctionOptions::Cache, {PlaceType::Local, 3}, {{PlaceType::Local, 0}}, {}, &code};
+    const auto placeStart0 = code.addPlaceData(TypeValueHolder<long long>::typeId);
+    const auto placeStart1 = code.addPlaceData(TypeValueHolder<long long>::typeId);
+    const auto placeStart2 = code.addPlaceData(TypeValueHolder<long long>::typeId);
+    const auto placeFirst = code.addPlaceData(TypeValueHolder<long long>::typeId);
+    const auto placeSecond = code.addPlaceData(TypeValueHolder<long long>::typeId);
+    const auto placeCount = code.addPlaceData(TypeValueHolder<long long>::typeId);
+    FunctionContext funcCont{"=", FunctionOptions::Cache, placeFirst, {placeStart0}, {}, &code};
     code.operations.push_back(legacyMod.buildFunction(funcCont));
-    funcCont.returnPlace = {PlaceType::Local, 4};
-    funcCont.argPlaces = {{PlaceType::Local, 1}};
+    funcCont.returnPlace = placeSecond;
+    funcCont.argPlaces = {placeStart1};
     code.operations.push_back(legacyMod.buildFunction(funcCont));
-    funcCont = {"+=", FunctionOptions::Cache, {PlaceType::Void}, {{PlaceType::Local, 3}, {PlaceType::Local, 4}}, {}, &code};
+    funcCont = {"+=", FunctionOptions::Cache, {PlaceType::Void}, {placeFirst, placeSecond}, {}, &code};
     code.operations.push_back(legacyMod.buildFunction(funcCont));
-    funcCont = {"swap", FunctionOptions::Cache, {PlaceType::Void}, {{PlaceType::Local, 3}, {PlaceType::Local, 4}}, {}, &code};
+    funcCont = {"swap", FunctionOptions::Cache, {PlaceType::Void}, {placeFirst, placeSecond}, {}, &code};
     code.operations.push_back(legacyMod.buildFunction(funcCont));
-    funcCont = {"+=", FunctionOptions::Cache, {PlaceType::Void}, {{PlaceType::Local, 5}, {PlaceType::Local, 2}}, {}, &code};
+    funcCont = {"+=", FunctionOptions::Cache, {PlaceType::Void}, {placeCount, placeStart2}, {}, &code};
     code.operations.push_back(legacyMod.buildFunction(funcCont));
-    funcCont = {">", FunctionOptions::Jump | FunctionOptions::Cache, {PlaceType::Void}, {{PlaceType::Local, 5}, {PlaceType::Local, 1}}, {-3, 1}, &code};
+    funcCont = {">", FunctionOptions::Jump | FunctionOptions::Cache, {PlaceType::Void}, {placeCount, placeStart1}, {-3, 1}, &code};
     code.operations.push_back(legacyMod.buildFunction(funcCont));
 
     static SpecTypeValueHolder<long long> start0, start1, start2, first, second, count;
@@ -250,12 +297,12 @@ TEST_F(CoreModulePerformanceFixture, Fibonacci_OldComparison)
     start1.set(1);
     start2.set(-1);
 
-    context.set({PlaceType::Local, 0}, start0);
-    context.set({PlaceType::Local, 1}, start1);
-    context.set({PlaceType::Local, 2}, start2);
-    context.set({PlaceType::Local, 3}, first);
-    context.set({PlaceType::Local, 4}, second);
-    context.set({PlaceType::Local, 5}, count);
+    context.set(placeStart0, start0);
+    context.set(placeStart1, start1);
+    context.set(placeStart2, start2);
+    context.set(placeFirst, first);
+    context.set(placeSecond, second);
+    context.set(placeCount, count);
 
 	for (size_t i = 0; i < 10000; ++i)
 	{

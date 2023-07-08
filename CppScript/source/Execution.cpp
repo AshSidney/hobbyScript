@@ -4,6 +4,25 @@
 namespace CppScript
 {
 
+DataBlock::DataBlock(const PlaceType placeType) : placeType(placeType)
+{}
+
+PlaceData DataBlock::addPlaceData(const TypeId& typeId)
+{
+    dataTypes.push_back(&typeId);
+    return { placeType, dataTypes.size() - 1 };
+}
+
+DataBlock::Frame DataBlock::createFrame() const
+{
+    Frame frame;
+    return frame;
+}
+
+
+CodeBlock::CodeBlock() : DataBlock(PlaceType::Local)
+{}
+
 void CodeBlock::registerCache(PlaceDataCache& cache)
 {
     auto& cacheType = caches[PlaceData::typeIndex(cache.argType)];
@@ -16,7 +35,7 @@ void CodeBlock::registerCache(PlaceDataCache& cache)
 void ExecutionContext::run(CodeBlock& code)
 {
     this->code = &code;
-    refreshCache(PlaceType::Local, PlaceType::Argument);
+    refreshCache(PlaceType::Local, PlaceType::Local);
     
     for (codePointer = this->code->operations.cbegin(); codePointer != this->code->operations.cend(); codePointer += nextCodeOffset)
     {

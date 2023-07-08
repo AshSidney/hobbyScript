@@ -32,6 +32,7 @@ constexpr bool contains(const FunctionOptions left, const FunctionOptions right)
     return (left & right) != FunctionOptions::Default;
 }
 
+class Module;
 
 struct FunctionContext
 {
@@ -40,7 +41,10 @@ struct FunctionContext
     PlaceData returnPlace;
     std::vector<PlaceData> argPlaces;
     std::vector<int> jumps;
-    CodeBlock* currentBlock;
+    CodeBlock* currentBlock{ nullptr };
+    Module* currentModule{ nullptr };
+
+    const TypeId& getDataType(const PlaceData& place) const;
 };
 
 
@@ -114,7 +118,7 @@ public:
         init(context, std::index_sequence_for<A...>());
     }
 
-    void execute(ExecutionContext& context) const
+    void execute(ExecutionContext& context) const override
     {
         return executeVoid(context, std::index_sequence_for<A...>());
     }
@@ -211,7 +215,7 @@ public:
 
     std::unique_ptr<Function> buildFunction(FunctionContext& context) const override
     {
-        if (context.returnPlace.argType != PlaceType::Void && std::is_void_v<R> || context.argPlaces.size() != sizeof...(A))
+        if (!validate(context))
             return {};
         const bool useCache = contains(context.options, FunctionOptions::Cache);
         if (contains(context.options, FunctionOptions::Jump))
@@ -225,6 +229,19 @@ public:
     }
 
 private:
+    bool validate(const FunctionContext& context) const
+    {
+        return ((context.returnPlace.argType == PlaceType::Void || !std::is_void_v<R>)
+            && validateArguments(context, { &SpecTypeValueHolder<A>::typeId ... }, std::index_sequence_for<A...>()));
+    }
+
+    template <size_t ...I>
+    bool validateArguments(const FunctionContext& context, std::initializer_list<const TypeId*> argTypes, std::index_sequence<I...>) const
+    {
+        return argTypes.size() == context.argPlaces.size() && ((*std::data(argTypes)[I] == context.getDataType(context.argPlaces[I])) && ...);
+    }
+
+
     template <template<typename> typename O>
     std::unique_ptr<Function> CreateVoidFunction(FunctionContext& context) const
     {
@@ -253,7 +270,7 @@ private:
 };
 
 
-class CPPSCRIPT_API Module
+class CPPSCRIPT_API Module : public DataBlock
 {
 public:
     Module(std::string_view name);

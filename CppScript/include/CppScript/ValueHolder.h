@@ -94,10 +94,10 @@ template <typename T> TypeId SpecTypeValueHolder<T>::specTypeId;
 
 
 template <typename T>
-class SpecTypeValueHolder<T&> : public TypeValueHolder<T>
+class SpecTypeValueHolder<T&> : public TypeValueHolder<std::remove_cv_t<T>>
 {
 public:
-    using ValueType = T;
+    using ValueType = std::remove_cv_t<T>;
 
     void set(T& val)
     {
