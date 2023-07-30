@@ -5,6 +5,7 @@
 #include <memory>
 #include <array>
 #include <vector>
+#include <cassert>
 
 
 namespace CppScript
@@ -22,7 +23,7 @@ class CPPSCRIPT_API PlaceData
 {
 public:
 	PlaceType argType;
-	size_t offset;
+	size_t index;
 
 	static constexpr size_t typeIndex(const PlaceType argType)
 	{
@@ -43,21 +44,157 @@ protected:
 };
 
 
-class CPPSCRIPT_API DataBlock
+class CPPSCRIPT_API MemoryAllocator
 {
 public:
-	DataBlock(PlaceType placeType);
+	static std::byte* allocate(const TypeLayout& layout);
+	static void free(std::byte* memPtr);
 
-	PlaceData addPlaceData(const TypeId& typeId);
+    static constexpr bool isPowerTwo(const size_t alignment)
+    {
+        return (alignment & (alignment - 1)) == 0;
+    }
 
-	using Frame = std::vector<std::unique_ptr<ValueHolder>>;
-	Frame createFrame() const;
+	static constexpr size_t alignDown(size_t offset, size_t alignment)
+	{
+		assert(isPowerTwo(alignment));
+		return offset & (~(alignment - 1));
+	}
 
-	using DataTypes = std::vector<const TypeId*>;
-	DataTypes dataTypes;
+	static constexpr size_t alignUp(size_t offset, size_t alignment)
+	{
+		size_t aligned = alignDown(offset, alignment);
+		if (offset != aligned)
+			aligned += alignment;
+		return aligned;
+	}
+
+    static constexpr bool isAligned(size_t offset, size_t alignment)
+	{
+		return offset == alignDown(offset, alignment);
+	}
+
+	static constexpr TypeLayout alignUp(const TypeLayout& layout)
+	{
+		return { alignUp(layout.size, layout.alignment), layout.alignment };
+	}
+};
+
+
+struct PlaceTypeOffset
+{
+	const TypeId* typeId;
+	std::unique_ptr<ValueHolder> value;
+	size_t offset;
+};
+
+using PlaceTypeOffsets = std::vector<PlaceTypeOffset>;
+
+template <typename Alloc = MemoryAllocator>
+class MemoryBlock
+{
+public:
+	MemoryBlock()
+	{}
+
+	MemoryBlock(const TypeLayout& blockLayout, const PlaceTypeOffsets& placeOffsets)
+		: memory(Alloc::allocate(Alloc::alignUp(blockLayout)))
+	{
+		values.reserve(placeOffsets.size());
+		destructs.reserve(placeOffsets.size());
+		for (const PlaceTypeOffset& placeOffset : placeOffsets)
+		{
+			auto* ptr = memory + placeOffset.offset;
+			if (placeOffset.value)
+			{
+				values.push_back(placeOffset.value->constructRef(ptr));
+			}
+			else
+			{
+				auto* value = placeOffset.typeId->construct(ptr);
+				values.push_back(value);
+				destructs.push_back(value);
+			}
+		}
+	}
+
+	~MemoryBlock()
+	{
+		for (const auto& destruct : destructs)
+			destruct->~ValueHolder();
+		if (memory != nullptr)
+			Alloc::free(memory);
+	}
+
+	MemoryBlock(MemoryBlock&& other) noexcept
+	{
+		std::swap(memory, other.memory);
+		std::swap(values, other.values);
+		std::swap(destructs, other.destructs);
+	}
+
+	MemoryBlock& operator=(MemoryBlock&& other) noexcept
+	{
+		assert(memory == nullptr);
+		std::swap(memory, other.memory);
+		std::swap(values, other.values);
+		std::swap(destructs, other.destructs);
+		return *this;
+	}
+
+	MemoryBlock(const MemoryBlock&) = delete;
+	MemoryBlock& operator=(const MemoryBlock&) = delete;
+
+	constexpr ValueHolder& get(const size_t index) const
+	{
+		return *values[index];
+	}
 
 private:
-	PlaceType placeType;
+	std::byte* memory { nullptr };
+	std::vector<ValueHolder*> values;
+	std::vector<ValueHolder*> destructs;
+};
+
+class DataBlock
+{
+public:
+	DataBlock(PlaceType type);
+
+	PlaceType getType() const
+	{
+		return placesType;
+	}
+
+	PlaceData addPlaceType(const TypeId& typeId)
+	{
+		return addPlace({ &typeId });
+	}
+
+	template <typename T>
+	PlaceData addPlaceValue(T val)
+	{
+		auto value = std::make_unique<SpecTypeValueHolder<T>>();
+		const TypeId& typeId = SpecTypeValueHolder<T>::specTypeId;
+		value->set(std::move(val));
+		return addPlace({ &typeId, std::move(value) });
+	}
+
+	const TypeId* getPlaceType(size_t index) const;
+
+	template <typename Alloc = MemoryAllocator>
+	MemoryBlock<Alloc> makeMemoryBlock() const
+	{
+		return blockLayout.size == 0 ? MemoryBlock<Alloc>{} : MemoryBlock<Alloc>{ blockLayout, placeTypeOffsets };
+	}
+
+private:
+	PlaceData addPlace(PlaceTypeOffset place);
+
+	PlaceType placesType;
+	TypeLayout blockLayout;
+	PlaceTypeOffsets placeTypeOffsets;
+	std::vector<size_t> placeIndices;
 };
 
 
@@ -83,28 +220,27 @@ class CPPSCRIPT_API ExecutionContext
 {
 public:
 	void run(CodeBlock& code);
+	void run();
 
 	void jump(int offset)
 	{
 		nextCodeOffset = offset;
 	}
 
-    ValueHolder& get(const PlaceData& place) const
+	ValueHolder& get(const PlaceData& place) const
 	{
-		return *placePointers[PlaceData::typeIndex(place.argType)][place.offset];
+		return memoryBlocks[PlaceData::typeIndex(place.argType)].get(place.index);
 	}
-
-	void set(const PlaceData& place, ValueHolder& val);
 
 	void refreshCache(PlaceType startType, PlaceType endType);
 
 private:
 	CodeBlock* code{nullptr};
 	CodeBlock::Code::const_iterator codePointer;
-	const int codeStep{1};
-	int nextCodeOffset{codeStep};
+	const int codeStep{ 1 };
+	int nextCodeOffset{ codeStep };
 
-	std::array<std::vector<ValueHolder*>, placeTypesCount> placePointers;
+	std::array<MemoryBlock<>, placeTypesCount> memoryBlocks;
 };
 
 

@@ -13,18 +13,24 @@ class CoreModuleFixture : public testing::Test
 protected:
     Module testModule{createCoreModule()};
 
-    std::tuple<CodeBlock, PlaceData> createFibonacci(ExecutionContext& context, FunctionOptions options = FunctionOptions::Default)
+    std::tuple<CodeBlock, PlaceData, PlaceData> createFibonacci(ExecutionContext& context, const IntValue& count,
+        FunctionOptions options = FunctionOptions::Default)
     {
         CodeBlock code;
-        const auto placeStart0 = code.addPlaceData(TypeValueHolder<IntValue>::typeId);
-        const auto placeStart1 = code.addPlaceData(TypeValueHolder<IntValue>::typeId);
-        const auto placeStart2 = code.addPlaceData(TypeValueHolder<IntValue>::typeId);
-        const auto placeFirst = code.addPlaceData(TypeValueHolder<IntValue>::typeId);
-        const auto placeSecond = code.addPlaceData(TypeValueHolder<IntValue>::typeId);
-        const auto placeCount = code.addPlaceData(TypeValueHolder<IntValue>::typeId);
-        FunctionContext funcCont{"=", FunctionOptions::Default | options, {PlaceType::Void}, {placeFirst, placeStart0}, {}, &code};
+        const auto placeStart0 = code.addPlaceValue(0_I);
+        const auto placeStart1 = code.addPlaceValue(1_I);
+        const auto placeStart2 = code.addPlaceValue(2_I);
+        const auto placeCountRef = code.addPlaceValue(count);
+        const auto placeCount = code.addPlaceType(SpecTypeValueHolder<IntValue>::specTypeId);
+        const auto placeFirst = code.addPlaceType(SpecTypeValueHolder<IntValue>::specTypeId);
+        const auto placeSecond = code.addPlaceType(SpecTypeValueHolder<IntValue>::specTypeId);
+        FunctionContext funcCont{"copy", FunctionOptions::Default | options, placeFirst, {placeStart0}, {}, &code};
         code.operations.push_back(testModule.buildFunction(funcCont));
-        funcCont.argPlaces = {placeSecond, placeStart1};
+        funcCont.returnPlace = placeSecond;
+        funcCont.argPlaces = {placeStart1};
+        code.operations.push_back(testModule.buildFunction(funcCont));
+        funcCont.returnPlace = placeCount;
+        funcCont.argPlaces = {placeCountRef};
         code.operations.push_back(testModule.buildFunction(funcCont));
         funcCont = {"<=>", FunctionOptions::Jump | options, {PlaceType::Void}, {placeCount, placeStart1}, {5, 6, 1}, &code};
         code.operations.push_back(testModule.buildFunction(funcCont));
@@ -38,210 +44,139 @@ protected:
         code.operations.push_back(testModule.buildFunction(funcCont));
         funcCont = {"=", FunctionOptions::Default | options, {PlaceType::Void}, {placeSecond, placeFirst}, {}, &code};
         code.operations.push_back(testModule.buildFunction(funcCont));
-
-        static SpecTypeValueHolder<IntValue> start0, start1, start2, first, second;
-        start0.set(0_I);
-        start1.set(1_I);
-        start2.set(2_I);
-        first.set(0_I);
-        second.set(0_I);
-
-        context.set(placeStart0, start0);
-        context.set(placeStart1, start1);
-        context.set(placeStart2, start2);
-        context.set(placeFirst, first);
-        context.set(placeSecond, second);
-
-        return {std::move(code), placeCount};
+        return { std::move(code), placeCountRef, placeSecond };
     }
 };
 
 TEST_F(CoreModuleFixture, IntCreateAndAdd)
 {
     CodeBlock code;
-    const auto placeLocal = code.addPlaceData(TypeValueHolder<IntValue>::typeId);
-    const auto placeLit = code.addPlaceData(TypeValueHolder<std::string>::typeId);
-    FunctionContext funcCont{"int", FunctionOptions::Default,
-        placeLocal, {placeLit}, {}, &code};
-    auto makeInt = testModule.buildFunction(funcCont);
-    const auto placeLocal2 = code.addPlaceData(TypeValueHolder<IntValue>::typeId);
+    const auto placeLocal = code.addPlaceType(SpecTypeValueHolder<IntValue>::specTypeId);
+    const auto placeLocal2 = code.addPlaceType(SpecTypeValueHolder<IntValue>::specTypeId);
+    const auto placeLit = code.addPlaceValue(std::string{"111222333444"});
+    FunctionContext funcCont{"int", FunctionOptions::Default, placeLocal, {placeLit}, {}, &code};
+    code.operations.push_back(testModule.buildFunction(funcCont));
+    const auto placeLit2 = code.addPlaceValue(98765_I);
+    funcCont.name = "copy";
+    funcCont.returnPlace = placeLocal2;
+    funcCont.argPlaces = {placeLit2};
+    code.operations.push_back(testModule.buildFunction(funcCont));
     funcCont.name = "+=";
     funcCont.returnPlace = {PlaceType::Void, 0};
     funcCont.argPlaces = {placeLocal2, placeLocal};
-    auto addInt = testModule.buildFunction(funcCont);
-
-    SpecTypeValueHolder<IntValue> intVal, intVal2;
-    SpecTypeValueHolder<std::string> intLit;
-    intLit.set("111222333444");
-    intVal2.set(98765_I);
+    code.operations.push_back(testModule.buildFunction(funcCont));
 
     ExecutionContext execCont;
-    execCont.set(placeLocal, intVal);
-    execCont.set(placeLit, intLit);
-    execCont.set(placeLocal2, intVal2);
+    execCont.run(code);
 
-    makeInt->execute(execCont);
-    addInt->execute(execCont);
-
-    EXPECT_EQ(intVal.get(), 111222333444_I);
-    EXPECT_EQ(intVal2.get(), 111222432209_I);
+    EXPECT_EQ(static_cast<TypeValueHolder<IntValue>&>(execCont.get(placeLocal)).get(), 111222333444_I);
+    EXPECT_EQ(static_cast<TypeValueHolder<IntValue>&>(execCont.get(placeLocal2)).get(), 111222432209_I);
 }
 
 TEST_F(CoreModuleFixture, FloatCreateAndAdd)
 {
     CodeBlock code;
-    const auto placeLocal = code.addPlaceData(TypeValueHolder<FloatValue>::typeId);
-    const auto placeLit = code.addPlaceData(TypeValueHolder<std::string>::typeId);
-    const auto placeFloat = code.addPlaceData(TypeValueHolder<FloatValue>::typeId);
+    const auto placeLocal = code.addPlaceType(SpecTypeValueHolder<FloatValue>::specTypeId);
+    const auto placeFloat = code.addPlaceType(SpecTypeValueHolder<FloatValue>::specTypeId);
+    const auto placeLit = code.addPlaceValue(std::string{"12.34e5"});
+    const auto placeLit2 = code.addPlaceValue(FloatValue{-78901.23});
     FunctionContext funcCont{"float", FunctionOptions::Default, placeLocal, {placeLit}, {}, &code};
-    auto makeFloat = testModule.buildFunction(funcCont);
+    code.operations.push_back(testModule.buildFunction(funcCont));
+    funcCont.name = "copy";
+    funcCont.returnPlace = placeFloat;
+    funcCont.argPlaces = {placeLit2};
+    code.operations.push_back(testModule.buildFunction(funcCont));
     funcCont.name = "+=";
     funcCont.returnPlace = {PlaceType::Void, 0};
     funcCont.argPlaces = {placeFloat, placeLocal};
-    auto addFloat = testModule.buildFunction(funcCont);
-
-    SpecTypeValueHolder<FloatValue> floatVal, floatVal2;
-    SpecTypeValueHolder<std::string> floatLit;
-    floatLit.set("12.34e5");
-    floatVal2.set(-78901.23);
+    code.operations.push_back(testModule.buildFunction(funcCont));
 
     ExecutionContext execCont;
-    execCont.set(placeLit, floatLit);
-    execCont.set(placeLocal, floatVal);
-    execCont.set(placeFloat, floatVal2);
+    execCont.run(code);
 
-    makeFloat->execute(execCont);
-    addFloat->execute(execCont);
-
-    EXPECT_EQ(floatVal.get(), 12.34e5);
-    EXPECT_EQ(floatVal2.get(), 12.34e5 - 78901.23);
+    EXPECT_EQ(static_cast<TypeValueHolder<FloatValue>&>(execCont.get(placeLocal)).get(), 12.34e5);
+    EXPECT_EQ(static_cast<TypeValueHolder<FloatValue>&>(execCont.get(placeFloat)).get(), 12.34e5 - 78901.23);
 }
 
 TEST_F(CoreModuleFixture, Fibonacci)
 {
     ExecutionContext context;
-    auto [code, placeCount] = createFibonacci(context);
-    SpecTypeValueHolder<IntValue> count;
-    context.set(placeCount, count);
-    auto& result = static_cast<TypeValueHolder<IntValue>&>(context.get({PlaceType::Local, 4}));
-
-    count.set(50_I);
+    const IntValue count1{50_I};
+    auto [code, countPlace, resultPlace] = createFibonacci(context, count1);
     context.run(code);
+    auto& result = static_cast<TypeValueHolder<IntValue>&>(context.get(resultPlace));
     EXPECT_EQ(result.get(), 12586269025_I);
 
-    count.set(89_I);
-    context.run(code);
+    auto& count = static_cast<SpecTypeValueHolder<const IntValue&>&>(context.get(countPlace));
+    const IntValue count2 = 89_I;
+    count.set(count2);
+    context.run();
     EXPECT_EQ(result.get(), 1779979416004714189_I);
 
-    count.set(200_I);
-    context.run(code);
+    const IntValue count3 = 200_I;
+    count.set(count3);
+    context.run();
     EXPECT_EQ(result.get(), 280571172992510140037611932413038677189525_I);
 }
 
 TEST_F(CoreModuleFixture, Fibonacci_Cache)
 {
     ExecutionContext context;
-    auto [code, placeCount] = createFibonacci(context, FunctionOptions::Cache);
-    SpecTypeValueHolder<IntValue> count;
-    context.set(placeCount, count);
-    auto& result = static_cast<TypeValueHolder<IntValue>&>(context.get({PlaceType::Local, 4}));
-
-    count.set(50_I);
+    const IntValue count1{50_I};
+    auto [code, countPlace, resultPlace] = createFibonacci(context, count1, FunctionOptions::Cache);
     context.run(code);
+    auto& result = static_cast<TypeValueHolder<IntValue>&>(context.get(resultPlace));
     EXPECT_EQ(result.get(), 12586269025_I);
 
-    count.set(89_I);
-    context.run(code);
+    auto& count = static_cast<SpecTypeValueHolder<const IntValue&>&>(context.get(countPlace));
+    const IntValue count2 = 89_I;
+    count.set(count2);
+    context.run();
     EXPECT_EQ(result.get(), 1779979416004714189_I);
 
-    count.set(200_I);
-    context.run(code);
+    const IntValue count3 = 200_I;
+    count.set(count3);
+    context.run();
     EXPECT_EQ(result.get(), 280571172992510140037611932413038677189525_I);
 }
 
 
-class CoreModulePerformanceFixture : public CoreModuleFixture
+struct FibonacciParams
 {
-protected:
-    void SetUp(FunctionOptions options)
-    {
-        PlaceData placeCount;
-        std::tie(code, placeCount) = createFibonacci(context, options);
-        context.set(placeCount, count);
-        result = &static_cast<TypeValueHolder<IntValue>&>(context.get({PlaceType::Local, 4}));
-    }
-
-    ExecutionContext context;
-    CodeBlock code;
-    SpecTypeValueHolder<IntValue> count;
-    TypeValueHolder<IntValue>* result;
+    FunctionOptions options;
+    IntValue count;
+    IntValue result;
 };
 
-TEST_F(CoreModulePerformanceFixture, Fibonacci_Small_Cache)
+class CoreModulePerformanceFixture : public CoreModuleFixture, public testing::WithParamInterface<FibonacciParams>
 {
-    SetUp(FunctionOptions::Cache);
-	for (int i = 0; i < 100000; ++i)
+protected:
+    const int repeats{100000};
+};
+
+TEST_P(CoreModulePerformanceFixture, Fibonacci)
+{
+    ExecutionContext context;
+    auto [code, countPlace, resultPlace] = createFibonacci(context, GetParam().count, GetParam().options);
+    context.run(code);
+    const auto& resultRef = static_cast<TypeValueHolder<IntValue>&>(context.get(resultPlace));
+    EXPECT_EQ(resultRef.get(), GetParam().result);
+
+	for (int i = 0; i < repeats; ++i)
     {
-        count.set(50_I);
-        context.run(code);
+        context.run();
     }
-    EXPECT_EQ(result->get(), 12586269025_I);
+    EXPECT_EQ(resultRef.get(), GetParam().result);
 }
 
-TEST_F(CoreModulePerformanceFixture, Fibonacci_Middle_Cache)
-{
-    SetUp(FunctionOptions::Cache);
-	for (int i = 0; i < 100000; ++i)
-    {
-        count.set(200_I);
-        context.run(code);
-    }
-    EXPECT_EQ(result->get(), 280571172992510140037611932413038677189525_I);
-}
+INSTANTIATE_TEST_SUITE_P(FibonacciInstances, CoreModulePerformanceFixture,
+    testing::Values(FibonacciParams{FunctionOptions::Default, 50_I, 12586269025_I},
+        FibonacciParams{FunctionOptions::Cache, 50_I, 12586269025_I},
+        FibonacciParams{FunctionOptions::Default, 200_I, fibonacci2<IntValue>(200)},
+        FibonacciParams{FunctionOptions::Cache, 200_I, fibonacci2<IntValue>(200)},
+        FibonacciParams{FunctionOptions::Default, 1000_I, fibonacci2<IntValue>(1000)},
+        FibonacciParams{FunctionOptions::Cache, 1000_I, fibonacci2<IntValue>(1000)}));
 
-TEST_F(CoreModulePerformanceFixture, Fibonacci_Big_Cache)
-{
-    SetUp(FunctionOptions::Cache);
-	for (int i = 0; i < 100000; ++i)
-    {
-        count.set(1000_I);
-        context.run(code);
-    }
-    EXPECT_EQ(result->get(), fibonacci2<IntValue>(1000));
-}
-
-TEST_F(CoreModulePerformanceFixture, Fibonacci_Small)
-{
-    SetUp(FunctionOptions::Default);
-	for (int i = 0; i < 100000; ++i)
-    {
-        count.set(50_I);
-        context.run(code);
-    }
-    EXPECT_EQ(result->get(), 12586269025_I);
-}
-
-TEST_F(CoreModulePerformanceFixture, Fibonacci_Middle)
-{
-    SetUp(FunctionOptions::Default);
-	for (int i = 0; i < 100000; ++i)
-    {
-        count.set(200_I);
-        context.run(code);
-    }
-    EXPECT_EQ(result->get(), 280571172992510140037611932413038677189525_I);
-}
-
-TEST_F(CoreModulePerformanceFixture, Fibonacci_Big)
-{
-    SetUp(FunctionOptions::Default);
-	for (int i = 0; i < 100000; ++i)
-    {
-        count.set(1000_I);
-        context.run(code);
-    }
-    EXPECT_EQ(result->get(), fibonacci2<IntValue>(1000));
-}
 
 
 long long assign(const long long& val)
@@ -272,16 +207,21 @@ TEST_F(CoreModulePerformanceFixture, Fibonacci_OldComparison)
         .defFunction("swap", &swap)
         .defFunction(">", &greater);
 
-    const auto placeStart0 = code.addPlaceData(TypeValueHolder<long long>::typeId);
-    const auto placeStart1 = code.addPlaceData(TypeValueHolder<long long>::typeId);
-    const auto placeStart2 = code.addPlaceData(TypeValueHolder<long long>::typeId);
-    const auto placeFirst = code.addPlaceData(TypeValueHolder<long long>::typeId);
-    const auto placeSecond = code.addPlaceData(TypeValueHolder<long long>::typeId);
-    const auto placeCount = code.addPlaceData(TypeValueHolder<long long>::typeId);
+    CodeBlock code;
+    const auto placeStart0 = code.addPlaceValue(long long(0));
+    const auto placeStart1 = code.addPlaceValue(long long(1));
+    const auto placeStart2 = code.addPlaceValue(long long(-1));
+    const auto placeCountConst = code.addPlaceValue(long long(90));
+    const auto placeCount = code.addPlaceType(SpecTypeValueHolder<long long>::specTypeId);
+    const auto placeFirst = code.addPlaceType(SpecTypeValueHolder<long long>::specTypeId);
+    const auto placeSecond = code.addPlaceType(SpecTypeValueHolder<long long>::specTypeId);
     FunctionContext funcCont{"=", FunctionOptions::Cache, placeFirst, {placeStart0}, {}, &code};
     code.operations.push_back(legacyMod.buildFunction(funcCont));
     funcCont.returnPlace = placeSecond;
     funcCont.argPlaces = {placeStart1};
+    code.operations.push_back(legacyMod.buildFunction(funcCont));
+    funcCont.returnPlace = placeCount;
+    funcCont.argPlaces = {placeCountConst};
     code.operations.push_back(legacyMod.buildFunction(funcCont));
     funcCont = {"+=", FunctionOptions::Cache, {PlaceType::Void}, {placeFirst, placeSecond}, {}, &code};
     code.operations.push_back(legacyMod.buildFunction(funcCont));
@@ -292,23 +232,15 @@ TEST_F(CoreModulePerformanceFixture, Fibonacci_OldComparison)
     funcCont = {">", FunctionOptions::Jump | FunctionOptions::Cache, {PlaceType::Void}, {placeCount, placeStart1}, {-3, 1}, &code};
     code.operations.push_back(legacyMod.buildFunction(funcCont));
 
-    static SpecTypeValueHolder<long long> start0, start1, start2, first, second, count;
-    start0.set(0);
-    start1.set(1);
-    start2.set(-1);
-
-    context.set(placeStart0, start0);
-    context.set(placeStart1, start1);
-    context.set(placeStart2, start2);
-    context.set(placeFirst, first);
-    context.set(placeSecond, second);
-    context.set(placeCount, count);
+    ExecutionContext context;
+    context.run(code);
+    const auto& resultRef = static_cast<TypeValueHolder<long long>&>(context.get(placeSecond));
+    EXPECT_EQ(resultRef.get(), fibonacci2<long long>(90));
 
 	for (size_t i = 0; i < 10000; ++i)
 	{
-        count.set(90);
-        context.run(code);
+        context.run();
 	}
 
-    EXPECT_EQ(second.get(), fibonacci2<long long>(90));
+    EXPECT_EQ(resultRef.get(), fibonacci2<long long>(90));
 }

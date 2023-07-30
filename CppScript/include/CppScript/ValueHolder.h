@@ -1,14 +1,42 @@
 #pragma once
 
 #include <CppScript/Definitions.h>
-#include <stdexcept>
 #include <optional>
+#include <memory>
+#include <stdexcept>
 
 namespace CppScript
 {
 
-struct CPPSCRIPT_API TypeId
-{};
+struct CPPSCRIPT_API TypeLayout
+{
+    size_t size{ 0 };
+    size_t alignment{ 0 };
+
+    constexpr TypeLayout& operator+=(const TypeLayout& other)
+    {
+        size += other.size;
+        alignment = std::max(alignment, other.alignment);
+        return *this;
+    }
+};
+
+
+class ValueHolder;
+
+class CPPSCRIPT_API TypeId
+{
+public:
+    virtual ~TypeId() noexcept = default;
+
+    virtual ValueHolder* construct(void* ptr) const
+    {
+        return nullptr;
+    }
+
+    const TypeId* basicTypeId{ nullptr };
+    TypeLayout layout;
+};
 
 CPPSCRIPT_API constexpr bool operator==(const TypeId& left, const TypeId& right)
 {
@@ -16,13 +44,36 @@ CPPSCRIPT_API constexpr bool operator==(const TypeId& left, const TypeId& right)
 }
 
 
+template <typename T> class SpecTypeValueHolder;
+
+template <typename T>
+class ValueTypeId : public TypeId
+{
+public:
+    using Holder = SpecTypeValueHolder<T>;
+
+    constexpr ValueTypeId()
+    {
+        basicTypeId = &Holder::typeId;
+        layout.size = sizeof(Holder);
+        layout.alignment = alignof(Holder);
+    }
+
+    ValueHolder* construct(void* ptr) const override
+    {
+        return new(ptr) Holder;
+    }
+};
+
+
 class CPPSCRIPT_API ValueHolder
 {
 public:
     virtual ~ValueHolder() noexcept = default;
 
+    virtual ValueHolder* constructRef(void* ptr) const = 0;
+
     virtual const TypeId& getTypeId() const = 0;
-    virtual const TypeId& getSpecTypeId() const = 0;
 };
 
 
@@ -53,7 +104,15 @@ public:
         value = &val;
     }
 
-    const TypeId& getTypeId() const
+    ValueHolder* constructRef(void* ptr) const override
+    {
+        using RefHolder = SpecTypeValueHolder<const ValueRef>;
+        RefHolder* refHolder = static_cast<RefHolder*>(RefHolder::specTypeId.construct(ptr));
+        refHolder->set(get());
+        return refHolder;
+    }
+
+    const TypeId& getTypeId() const override
     {
         return typeId;
     }
@@ -64,7 +123,8 @@ protected:
     ValuePtr value{ nullptr };
 };
 
-template <typename T> TypeId TypeValueHolder<T>::typeId;
+template <typename T>
+TypeId TypeValueHolder<T>::typeId;
 
 
 template <typename T>
@@ -79,18 +139,19 @@ public:
         TypeValueHolder<ValueType>::set(*storedValue);
     }
 
-    const TypeId& getSpecTypeId() const
+    const TypeId& getTypeId() const override
     {
         return specTypeId;
     }
 
-    static TypeId specTypeId;
+    static ValueTypeId<T> specTypeId;
 
 private:
     std::optional<ValueType> storedValue;
 };
 
-template <typename T> TypeId SpecTypeValueHolder<T>::specTypeId;
+template <typename T>
+ValueTypeId<T> SpecTypeValueHolder<T>::specTypeId;
 
 
 template <typename T>
@@ -101,18 +162,46 @@ public:
 
     void set(T& val)
     {
-        TypeValueHolder<ValueType>::set(val);
+        TypeValueHolder<ValueType>::set(const_cast<ValueType&>(val));
     }
 
-    const TypeId& getSpecTypeId() const
+    const TypeId& getTypeId() const override
     {
         return specTypeId;
     }
 
-    static TypeId specTypeId;
+    static ValueTypeId<T&> specTypeId;
 };
 
-template <typename T> TypeId SpecTypeValueHolder<T&>::specTypeId;
+template <typename T>
+ValueTypeId<T&> SpecTypeValueHolder<T&>::specTypeId;
+
+
+template <typename T>
+class SpecTypeValueHolder<std::unique_ptr<T>> : public TypeValueHolder<std::remove_cv_t<T>>
+{
+public:
+    using ValueType = std::remove_cv_t<T>;
+
+    void set(std::unique_ptr<T> val)
+    {
+        storedValue = std::move(val);
+        TypeValueHolder<ValueType>::value = const_cast<ValueType*>(storedValue.get());
+    }
+
+    const TypeId& getTypeId() const override
+    {
+        return specTypeId;
+    }
+
+    static ValueTypeId<std::unique_ptr<T>> specTypeId;
+
+private:
+    std::unique_ptr<ValueType> storedValue;
+};
+
+template <typename T>
+ValueTypeId<std::unique_ptr<T>> SpecTypeValueHolder<std::unique_ptr<T>>::specTypeId;
 
 
 template <typename T>

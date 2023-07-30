@@ -3,6 +3,7 @@
 #include <CppScript/IntValue.h>
 #include "IntUtils.h"
 #include <cmath>
+#include <cassert>
 
 namespace
 {
@@ -49,7 +50,7 @@ std::tuple<SegType, SegType> multiply(const SegType leftOp, const SegType rightO
 	const auto [bottomMidSum, bottomMidCarry] = add(bottomResult, (midResult & bottomHalfMask) << halfBitsCount, 0);
 	const auto [topMidSum, topMidCarry] = add(topResult, (midResult & topHalfMask) >> halfBitsCount,
 		(midResultCarry << halfBitsCount) + bottomMidCarry);
-	_ASSERT(topMidCarry == 0);
+	assert(topMidCarry == 0);
 	return { bottomMidSum, topMidSum };
 }
 
@@ -267,14 +268,14 @@ void IntValue::NumSegments::add(const NumSegments& addSegments, const size_t off
 
 void IntValue::NumSegments::subtract(const NumSegments& subSegments, const size_t offset)
 {
-	_ASSERT(values.size() >= subSegments.values.size() + offset);
+	assert(values.size() >= subSegments.values.size() + offset);
 	SegType carry = 0;
 	auto segment = values.begin() + offset;
 	for (auto subSegment = subSegments.values.begin(); subSegment != subSegments.values.end(); ++segment, ++subSegment)
 		std::tie(*segment, carry) = ::subtract(*segment, *subSegment, carry);
 	for (; carry != 0 && segment != values.end(); ++segment)
 		std::tie(*segment, carry) = ::subtract(*segment, 0, carry);
-	_ASSERT(carry == 0);
+	assert(carry == 0);
 	trim();
 }
 

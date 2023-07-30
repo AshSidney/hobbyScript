@@ -27,7 +27,7 @@ add_library(cppScript
     source/CoreModule.cpp
     source/IntUtils.h
     source/IntUtils.cpp
-    )
+   )
 
 add_executable(cppScriptTest
     test/CppScriptTest.cpp
@@ -38,6 +38,8 @@ add_executable(cppScriptTest
     test/CoreModuleTest.cpp
     test/ValueHolderTest.cpp
     test/Fibonacci.h
+    test/TestUtils.h
+    test/TestUtils.cpp
     )
 
 target_link_libraries(cppScriptTest

@@ -41,7 +41,7 @@ struct FunctionContext
     PlaceData returnPlace;
     std::vector<PlaceData> argPlaces;
     std::vector<int> jumps;
-    CodeBlock* currentBlock{ nullptr };
+    CodeBlock* currentCode{ nullptr };
     Module* currentModule{ nullptr };
 
     const TypeId& getDataType(const PlaceData& place) const;
@@ -55,7 +55,7 @@ public:
     void init(const PlaceData place, FunctionContext& context)
     {
         argType = place.argType;
-        offset = place.offset;
+        index = place.index;
     }
 
     using ValueAccess = ValueTraits<T>;
@@ -80,8 +80,8 @@ public:
     void init(const PlaceData place, FunctionContext& context)
     {
         argType = place.argType;
-        offset = place.offset;
-        context.currentBlock->registerCache(*this);
+        index = place.index;
+        context.currentCode->registerCache(*this);
     }
 
     using ValueAccess = ValueTraits<T>;
@@ -217,15 +217,16 @@ public:
     {
         if (!validate(context))
             return {};
-        const bool useCache = contains(context.options, FunctionOptions::Cache);
-        if (contains(context.options, FunctionOptions::Jump))
+        return contains(context.options, FunctionOptions::Cache) ?
+            createFunction<CachedObjectAccessor>(context) : createFunction<StraightObjectAccessor>(context);
+        /*if (contains(context.options, FunctionOptions::Jump))
             return useCache ? CreateJumpFunction<CachedObjectAccessor>(context)
                 : CreateJumpFunction<StraightObjectAccessor>(context);
         if (context.returnPlace.argType != PlaceType::Void)
             return useCache ? CreateReturnFunction<CachedObjectAccessor>(context)
                 : CreateReturnFunction<StraightObjectAccessor>(context);
         return useCache ? CreateVoidFunction<CachedObjectAccessor>(context)
-            : CreateVoidFunction<StraightObjectAccessor>(context);
+            : CreateVoidFunction<StraightObjectAccessor>(context);*/
     }
 
 private:
@@ -241,28 +242,24 @@ private:
         return argTypes.size() == context.argPlaces.size() && ((*std::data(argTypes)[I] == context.getDataType(context.argPlaces[I])) && ...);
     }
 
-
     template <template<typename> typename O>
-    std::unique_ptr<Function> CreateVoidFunction(FunctionContext& context) const
-    {
-        return std::make_unique<FunctionVoid<F, O, A...>>(function, context);
-    }
-
-    template <template<typename> typename O>
-    std::unique_ptr<Function> CreateReturnFunction(FunctionContext& context) const
+    std::unique_ptr<Function> createFunction(FunctionContext& context) const
     {
         std::unique_ptr<Function> func;
-        if constexpr(!std::is_void_v<R>)
-            func = std::make_unique<FunctionReturn<F, O, R, A...>>(function, context);
-        return func;
-    }
-
-    template <template<typename> typename O>
-    std::unique_ptr<Function> CreateJumpFunction(FunctionContext& context) const
-    {
-        std::unique_ptr<Function> func;
-        if constexpr(!std::is_void_v<R> && JumpTableTraits<R>::size > 0)
-            func = std::make_unique<FunctionJump<F, O, R, A...>>(function, context);
+        if (contains(context.options, FunctionOptions::Jump))
+        {
+            if constexpr(!std::is_void_v<R> && JumpTableTraits<R>::size > 0)
+                func = std::make_unique<FunctionJump<F, O, R, A...>>(function, context);
+        }
+        else if (context.returnPlace.argType != PlaceType::Void)
+        {
+            if constexpr(!std::is_void_v<R>)
+                func = std::make_unique<FunctionReturn<F, O, R, A...>>(function, context);
+        }
+        else
+        {
+            func = std::make_unique<FunctionVoid<F, O, A...>>(function, context);
+        }
         return func;
     }
 

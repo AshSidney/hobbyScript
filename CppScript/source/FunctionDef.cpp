@@ -5,12 +5,13 @@ namespace CppScript
 
 const TypeId& FunctionContext::getDataType(const PlaceData& place) const
 {
-    static TypeId noTypeId;
+    struct NoType{};
+    static ValueTypeId<NoType> noTypeId;
     const TypeId* foundType{ &noTypeId };
-    if (place.argType < PlaceType::Module && currentBlock != nullptr)
+    if (place.argType == PlaceType::Local && currentCode != nullptr)
     {
-        if (place.offset < currentBlock->dataTypes.size())
-            foundType = currentBlock->dataTypes[place.offset];
+        if (const TypeId* localType = currentCode->getPlaceType(place.index); localType != nullptr)
+            foundType = localType;
     }
     return *foundType;
 }
