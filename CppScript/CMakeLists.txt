@@ -16,6 +16,7 @@ include_directories(include source)
 
 add_library(cppScript
     include/CppScript/Definitions.h
+    include/CppScript/EnumFlag.h
     include/CppScript/IntValue.h
     include/CppScript/Execution.h
     include/CppScript/FunctionDef.h
@@ -31,6 +32,7 @@ add_library(cppScript
 
 add_executable(cppScriptTest
     test/CppScriptTest.cpp
+    test/EnumFlagTest.cpp
     test/ExecutionTest.cpp
     test/IntValueTest.cpp
     test/IntUtilsTest.cpp

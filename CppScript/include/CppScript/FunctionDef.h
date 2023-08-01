@@ -2,6 +2,7 @@
 
 #include <CppScript/Definitions.h>
 #include <CppScript/Execution.h>
+#include <CppScript/EnumFlag.h>
 #include <memory>
 #include <vector>
 #include <tuple>
@@ -12,32 +13,22 @@ namespace CppScript
 
 enum class FunctionOptions
 {
-    Default = 0,
-    Cache = 1,
-    Jump = 2
+    Cache,
+    Jump
 };
 
-constexpr FunctionOptions operator|(const FunctionOptions left, const FunctionOptions right)
+template<> struct EnumTraits<FunctionOptions>
 {
-    return static_cast<FunctionOptions>(static_cast<size_t>(left) | static_cast<size_t>(right));
-}
+    static const FunctionOptions last{ FunctionOptions::Jump };
+};
 
-constexpr FunctionOptions operator&(const FunctionOptions left, const FunctionOptions right)
-{
-    return static_cast<FunctionOptions>(static_cast<size_t>(left) & static_cast<size_t>(right));
-}
-
-constexpr bool contains(const FunctionOptions left, const FunctionOptions right)
-{
-    return (left & right) != FunctionOptions::Default;
-}
 
 class Module;
 
 struct FunctionContext
 {
     std::string name;
-    FunctionOptions options;
+    EnumFlag<FunctionOptions> options;
     PlaceData returnPlace;
     std::vector<PlaceData> argPlaces;
     std::vector<int> jumps;
@@ -217,16 +208,8 @@ public:
     {
         if (!validate(context))
             return {};
-        return contains(context.options, FunctionOptions::Cache) ?
+        return context.options.contains({ FunctionOptions::Cache }) ?
             createFunction<CachedObjectAccessor>(context) : createFunction<StraightObjectAccessor>(context);
-        /*if (contains(context.options, FunctionOptions::Jump))
-            return useCache ? CreateJumpFunction<CachedObjectAccessor>(context)
-                : CreateJumpFunction<StraightObjectAccessor>(context);
-        if (context.returnPlace.argType != PlaceType::Void)
-            return useCache ? CreateReturnFunction<CachedObjectAccessor>(context)
-                : CreateReturnFunction<StraightObjectAccessor>(context);
-        return useCache ? CreateVoidFunction<CachedObjectAccessor>(context)
-            : CreateVoidFunction<StraightObjectAccessor>(context);*/
     }
 
 private:
@@ -246,7 +229,7 @@ private:
     std::unique_ptr<Function> createFunction(FunctionContext& context) const
     {
         std::unique_ptr<Function> func;
-        if (contains(context.options, FunctionOptions::Jump))
+        if (context.options.contains({ FunctionOptions::Jump }))
         {
             if constexpr(!std::is_void_v<R> && JumpTableTraits<R>::size > 0)
                 func = std::make_unique<FunctionJump<F, O, R, A...>>(function, context);
