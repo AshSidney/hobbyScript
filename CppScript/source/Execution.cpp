@@ -1,5 +1,8 @@
 #include <CppScript/Execution.h>
 #include <CppScript/FunctionDef.h>
+#include <CppScript/ScriptModule.h>
+#include <algorithm>
+#include <iterator>
 #include <cstdlib>
 #include <cassert>
 
@@ -27,10 +30,76 @@ void MemoryAllocator::free(std::byte* memPtr)
 }
 
 
-DataBlock::DataBlock(const PlaceType type) : placesType(type)
+DataBlockDef DataBlockDef::Builder::build()
+{
+    const auto valuePtrs = TypeLayout::make<ValueHolder*>(places.size() + destructCount);
+    assert(blockLayout.size == 0 || blockLayout.alignment >= valuePtrs.alignment);
+    DataBlockDef result{ { MemoryAllocator::alignUp(blockLayout + valuePtrs), {},
+        blockLayout.size, destructCount }, std::move(values) };
+    result.layout.values.reserve(places.size());
+    for (const auto& place : places)
+        result.layout.values.emplace_back(*place.typeId, place.offset, place.source);
+    clear();
+    return result;
+}
+
+size_t DataBlockDef::Builder::addPlace(const TypeId& typeId)
+{
+    return addPlace(typeId, nullptr);
+}
+
+size_t DataBlockDef::Builder::addPlace(std::unique_ptr<ValueHolder> value)
+{
+    const ValueHolder* valuePtr = value.get();
+    values.push_back(std::move(value));
+    const TypeId& typeId = *valuePtr->getSpecTypeId().refTypeId;
+    return addPlace(typeId, valuePtr);
+}
+
+size_t DataBlockDef::Builder::addPlace(const TypeId& typeId, const ValueHolder* value)
+{
+    const TypeLayout typeLayout = typeId.layout;
+    assert(MemoryAllocator::isAligned(typeLayout.size, typeLayout.alignment));
+    const size_t valueIndex = places.size();
+    placeIndices.push_back(valueIndex);
+    size_t placeOffset = blockLayout.size;
+    if (!MemoryAllocator::isAligned(placeOffset, typeLayout.alignment))
+    {
+        for (size_t index = valueIndex; index > 0; --index)
+        {
+            const size_t prevIndex = placeIndices[index - 1];
+            placeIndices[index] = prevIndex;
+            placeOffset = places[prevIndex].offset;
+            places[prevIndex].offset += typeLayout.size;
+            if (MemoryAllocator::isAligned(placeOffset, typeLayout.alignment))
+            {
+                placeIndices[index - 1] = valueIndex;
+                break;
+            }
+        }
+    }
+    places.push_back({ &typeId, placeOffset, value });
+    blockLayout += typeId.layout;
+    if (!typeId.isReference)
+            ++destructCount;
+    return valueIndex;
+}
+
+void DataBlockDef::Builder::clear()
+{
+    blockLayout = {};
+    places.clear();
+    values.clear();
+    placeIndices.clear();
+    destructCount = 0;
+}
+
+
+DataBlockOld::DataBlockOld(const PlaceType type) : placesType(type)
 {}
 
-PlaceData DataBlock::addPlace(PlaceTypeOffset place)
+
+PlaceData DataBlockOld::addPlace(PlaceTypeOffset place)
 {
     const TypeLayout typeLayout = place.typeId->layout;
     assert(MemoryAllocator::isAligned(typeLayout.size, typeLayout.alignment));
@@ -59,13 +128,13 @@ PlaceData DataBlock::addPlace(PlaceTypeOffset place)
     return { placesType, placeIndex };
 }
 
-const TypeId* DataBlock::getPlaceType(const size_t index) const
+const TypeId* DataBlockOld::getPlaceType(const size_t index) const
 {
     return index < placeTypeOffsets.size() ? placeTypeOffsets[index].typeId->basicTypeId : nullptr;
 }
 
 
-CodeBlock::CodeBlock() : DataBlock(PlaceType::Local)
+CodeBlock::CodeBlock(DataBlockDef data) : dataDef(std::move(data))
 {}
 
 void CodeBlock::registerCache(PlaceDataCache& cache)
@@ -76,35 +145,50 @@ void CodeBlock::registerCache(PlaceDataCache& cache)
     cacheType[cache.index].push_back(&cache);
 }
 
-void ExecutionContext::run(CodeBlock& code)
+
+void ExecutionContext::run(const CodeBlock& code, DataBlock<>& data)
 {
-    this->code = &code;
-    memoryBlocks[PlaceData::typeIndex(code.getType())] = code.makeMemoryBlock<>();
-    refreshCache(PlaceType::Local, PlaceType::Local);
-    run();
+    currentData = { nullptr, &data };
+    codeStack.push_back({ DataBlock<>{{}}, &data, &code });
+    currentFrame = &codeStack.back();
+    refreshCache(PlaceType::Module);
+    currentFrame->run(*this);
+    codeStack.pop_back();
 }
 
-void ExecutionContext::run()
+void ExecutionContext::run(const ScriptFunction& func)
+{}
+
+void ExecutionContext::run(const ScriptModule& module)
 {
-    assert(code != nullptr);
-    for (codePointer = this->code->operations.cbegin(); codePointer != this->code->operations.cend(); codePointer += nextCodeOffset)
+    if (module.getData() == nullptr)
     {
-        nextCodeOffset = codeStep;
-        (*codePointer)->execute(*this);
+        const CodeBlock& code = module.getCode();
+        module.setData(moduleData.emplace_back(code.getDataLayout()));
+        run(code, *module.getData());
     }
 }
 
-void ExecutionContext::refreshCache(const PlaceType startType, const PlaceType endType)
+void ExecutionContext::refreshCache(const PlaceType placeType)
 {
-    for (size_t currType = PlaceData::typeIndex(startType); currType <= PlaceData::typeIndex(endType); ++currType)
+    const size_t typeIndex = PlaceData::typeIndex(placeType);
+    const auto& currCaches = currentFrame->code->caches[typeIndex];
+    for (size_t index = 0; index < currCaches.size(); ++index)
     {
-        const auto& currCaches = code->caches[currType];
-        for (size_t index = 0; index < currCaches.size(); ++index)
-        {
-            auto& valueHolder = memoryBlocks[currType].get(index);
-            for (auto* cache : currCaches[index])
-                cache->setHolder(valueHolder);
-        }
+        auto& valueHolder = currentData[typeIndex]->get(index);
+        for (auto* cache : currCaches[index])
+            cache->setHolder(valueHolder);
+    }
+}
+
+void ExecutionContext::CodeFrame::run(ExecutionContext& context)
+{
+    assert(code != nullptr);
+    const auto codeEnd = code->operations.cend();
+    for (codePointer = code->operations.cbegin(); codePointer != codeEnd; codePointer += nextCodeOffset)
+    {
+        nextCodeOffset = codeStep;
+        (*codePointer)->execute(context);
     }
 }
 

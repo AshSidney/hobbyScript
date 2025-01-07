@@ -20,6 +20,7 @@ add_library(cppScript
     include/CppScript/IntValue.h
     include/CppScript/Execution.h
     include/CppScript/FunctionDef.h
+    include/CppScript/ScriptModule.h
     include/CppScript/CoreModule.h
     include/CppScript/ValueHolder.h
     source/IntValue.cpp
@@ -28,6 +29,8 @@ add_library(cppScript
     source/CoreModule.cpp
     source/IntUtils.h
     source/IntUtils.cpp
+    source/ScriptModule.cpp
+    source/ValueHolder.cpp
    )
 
 add_executable(cppScriptTest
@@ -39,6 +42,7 @@ add_executable(cppScriptTest
     test/FunctionDefTest.cpp
     test/CoreModuleTest.cpp
     test/ValueHolderTest.cpp
+    test/ScriptModuleTest.cpp
     test/Fibonacci.h
     test/TestUtils.h
     test/TestUtils.cpp

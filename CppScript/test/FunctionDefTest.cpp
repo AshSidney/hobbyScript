@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <CppScript/FunctionDef.h>
+#include "TestUtils.h"
 
 using namespace CppScript;
 
@@ -36,6 +37,7 @@ float diff(float x, float y)
     return x - y;
 }
 
+
 class FunctionDefFixture : public testing::Test
 {
 protected:
@@ -53,33 +55,37 @@ protected:
 
 TEST_F(FunctionDefFixture, FunctionCreationAndExecution)
 {
-    CodeBlock code;
-    const auto place1 = code.addPlaceValue(10.0F);
-    const auto place2 = code.addPlaceValue(2.5F);
-    const auto place3 = code.addPlaceType(SpecTypeValueHolder<float>::specTypeId);
+    DataBlockDef::Builder builder;
+    const PlaceData place1{ PlaceType::Module, builder.addPlace(makeValue(10.0F)) };
+    const PlaceData place2{ PlaceType::Module, builder.addPlace(makeValue(2.5F)) };
+    const PlaceData place3{ PlaceType::Module, builder.addPlace(SpecTypeValueHolder<float>::specTypeId) };
+ 
+    CodeBlock code{ { builder.build() } };
     ExecutionContext context;
-
-    FunctionContext funcCont{"diff", {}, place3, {place1, place2}, {}, &code};
+    FunctionContext funcCont{"diff", {}, place3, {place1, place2}, {}, &code, &code.getDataLayout()};
     code.operations.push_back(testModule.buildFunction(funcCont));
-    context.run(code);
+    DataBlock<> data{code.getDataLayout()};
+    context.run(code, data);
     EXPECT_EQ(static_cast<TypeValueHolder<float>&>(context.get(place3)).get(), 7.5F);
 }
 
 TEST_F(FunctionDefFixture, MethodDefConstructionAndCall)
 {
-    CodeBlock code;
-    const auto place1 = code.addPlaceValue(TestedClass{10});
-    const auto place2 = code.addPlaceValue(TestedClass{5});
-    const auto place3 = code.addPlaceValue(TestedClass{2});
-    const auto place4 = code.addPlaceValue(int(4));
+    DataBlockDef::Builder builder;
+    const PlaceData place1{ PlaceType::Module, builder.addPlace(makeValue(TestedClass{10})) };
+    const PlaceData place2{ PlaceType::Module, builder.addPlace(makeValue(TestedClass{5})) };
+    const PlaceData place3{ PlaceType::Module, builder.addPlace(makeValue(TestedClass{2})) };
+    const PlaceData place4{ PlaceType::Module, builder.addPlace(makeValue(int(4))) };
 
-    ExecutionContext context;
-    FunctionContext funcCont{"add", {}, {PlaceType::Void}, {place1, place3}, {}, &code};
+    CodeBlock code{ { builder.build() } };
+     ExecutionContext context;
+    FunctionContext funcCont{"add", {}, {PlaceType::Void}, {place1, place3}, {}, &code, &code.getDataLayout()};
     code.operations.push_back(testModule.buildFunction(funcCont));
-    FunctionContext funcCont2{"get", {}, place4, {place3}, {}, &code};
+    FunctionContext funcCont2{"get", {}, place4, {place3}, {}, &code, &code.getDataLayout()};
     code.operations.push_back(testModule.buildFunction(funcCont2));
 
-    context.run(code);
+    DataBlock<> data{code.getDataLayout()};
+    context.run(code, data);
     
     EXPECT_EQ(static_cast<TypeValueHolder<TestedClass>&>(context.get(place1)).get().get(), 12);
     EXPECT_EQ(static_cast<TypeValueHolder<int>&>(context.get(place4)).get(), 2);
@@ -87,13 +93,15 @@ TEST_F(FunctionDefFixture, MethodDefConstructionAndCall)
 
 TEST_F(FunctionDefFixture, MethodWithJump)
 {
-    CodeBlock code;
-    const auto place1 = code.addPlaceValue(TestedClass{8});
-    const auto place2 = code.addPlaceValue(TestedClass{5});
-    const auto place3 = code.addPlaceValue(TestedClass{});
+    DataBlockDef::Builder builder;
+    const PlaceData place1{ PlaceType::Module, builder.addPlace(makeValue(TestedClass{8})) };
+    const PlaceData place2{ PlaceType::Module, builder.addPlace(makeValue(TestedClass{5})) };
+    const PlaceData place3{ PlaceType::Module, builder.addPlace(makeValue(TestedClass{})) };
+
+    CodeBlock code{ { builder.build() } };
     ExecutionContext context;
 
-    FunctionContext funcCont{"==", {FunctionOptions::Jump}, {PlaceType::Void}, {place1, place2}, {1, 2}, &code};
+    FunctionContext funcCont{"==", {FunctionOptions::Jump}, {PlaceType::Void}, {place1, place2}, {1, 2}, &code, &code.getDataLayout()};
     code.operations.push_back(testModule.buildFunction(funcCont));
     funcCont.name = "add";
     funcCont.options = {};
@@ -103,20 +111,23 @@ TEST_F(FunctionDefFixture, MethodWithJump)
     funcCont.argPlaces = {place3, place1};
     code.operations.push_back(testModule.buildFunction(funcCont));
 
-    context.run(code);
+    DataBlock<> data{code.getDataLayout()};
+    context.run(code, data);
 
     EXPECT_EQ(static_cast<TypeValueHolder<TestedClass>&>(context.get(place3)).get().get(), 8);
 }
 
 TEST_F(FunctionDefFixture, MethodWithJump2)
 {
-    CodeBlock code;
-    const auto place1 = code.addPlaceValue(TestedClass{5});
-    const auto place2 = code.addPlaceValue(TestedClass{5});
-    const auto place3 = code.addPlaceValue(TestedClass{});
+    DataBlockDef::Builder builder;
+    const PlaceData place1{ PlaceType::Module, builder.addPlace(makeValue(TestedClass{5})) };
+    const PlaceData place2{ PlaceType::Module, builder.addPlace(makeValue(TestedClass{5})) };
+    const PlaceData place3{ PlaceType::Module, builder.addPlace(makeValue(TestedClass{})) };
+
+    CodeBlock code{ { builder.build() } };
     ExecutionContext context;
 
-    FunctionContext funcCont{"==", {FunctionOptions::Jump}, {PlaceType::Void}, {place1, place2}, {1, 2}, &code};
+    FunctionContext funcCont{"==", {FunctionOptions::Jump}, {PlaceType::Void}, {place1, place2}, {1, 2}, &code, &code.getDataLayout()};
     code.operations.push_back(testModule.buildFunction(funcCont));
     funcCont.name = "add";
     funcCont.options = {};
@@ -126,7 +137,8 @@ TEST_F(FunctionDefFixture, MethodWithJump2)
     funcCont.argPlaces = {place3, place1};
     code.operations.push_back(testModule.buildFunction(funcCont));
 
-    context.run(code);
+    DataBlock<> data{code.getDataLayout()};
+    context.run(code, data);
 
     EXPECT_EQ(static_cast<TypeValueHolder<TestedClass>&>(context.get(place3)).get().get(), 10);
 }

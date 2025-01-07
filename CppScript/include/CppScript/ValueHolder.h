@@ -4,6 +4,7 @@
 #include <optional>
 #include <memory>
 #include <stdexcept>
+#include <cassert>
 
 namespace CppScript
 {
@@ -13,6 +14,12 @@ struct CPPSCRIPT_API TypeLayout
     size_t size{ 0 };
     size_t alignment{ 0 };
 
+    template <typename T>
+    static constexpr TypeLayout make(const size_t count = 1)
+    {
+        return { sizeof(T) * count, alignof(T) };
+    }
+
     constexpr TypeLayout& operator+=(const TypeLayout& other)
     {
         size += other.size;
@@ -20,6 +27,13 @@ struct CPPSCRIPT_API TypeLayout
         return *this;
     }
 };
+
+constexpr TypeLayout operator+(const TypeLayout& left, const TypeLayout& right)
+{
+    TypeLayout result{left};
+    result += right;
+    return result;
+}
 
 
 class ValueHolder;
@@ -34,14 +48,38 @@ public:
         return nullptr;
     }
 
-    const TypeId* basicTypeId{ nullptr };
+    virtual ValueHolder* constructRef(void* ptr, const ValueHolder& source) const
+    {
+        return nullptr;
+    }
+
     TypeLayout layout;
+    const TypeId* basicTypeId{ nullptr };
+    const TypeId* refTypeId{ nullptr };
+    bool isReference{ false };
 };
+
+extern TypeId noTypeId;
 
 CPPSCRIPT_API constexpr bool operator==(const TypeId& left, const TypeId& right)
 {
     return &left == &right;
 }
+
+
+class CPPSCRIPT_API ValueHolder
+{
+public:
+    virtual ~ValueHolder() noexcept = default;
+
+    //virtual void set(const ValueHolder& source) = 0;
+    //virtual void setRef(const ValueHolder& source) = 0;
+
+    //virtual ValueHolder* constructRef(void* ptr) const = 0;
+
+    virtual const TypeId& getTypeId() const = 0;
+    virtual const TypeId& getSpecTypeId() const = 0;
+};
 
 
 template <typename T> class SpecTypeValueHolder;
@@ -54,26 +92,25 @@ public:
 
     constexpr ValueTypeId()
     {
+        layout = TypeLayout::make<Holder>();
         basicTypeId = &Holder::typeId;
-        layout.size = sizeof(Holder);
-        layout.alignment = alignof(Holder);
+        refTypeId = &SpecTypeValueHolder<Holder::ValueRef>::specTypeId;
+        isReference = std::is_reference_v<T>;
     }
 
     ValueHolder* construct(void* ptr) const override
     {
         return new(ptr) Holder;
     }
-};
 
-
-class CPPSCRIPT_API ValueHolder
-{
-public:
-    virtual ~ValueHolder() noexcept = default;
-
-    virtual ValueHolder* constructRef(void* ptr) const = 0;
-
-    virtual const TypeId& getTypeId() const = 0;
+    ValueHolder* constructRef(void* ptr, const ValueHolder& source) const override
+    {
+        assert(isReference);
+        assert(Holder::typeId == source.getTypeId());
+        Holder* refHolder = new(ptr) Holder;
+        refHolder->setVal(static_cast<const TypeValueHolder<Holder::ValueType>&>(source).get());
+        return refHolder;
+    }
 };
 
 
@@ -99,18 +136,24 @@ public:
         return *value;
     }
 
-    void set(ValueRef val)
+    void setVal(ValueRef val)
     {
         value = &val;
     }
 
-    ValueHolder* constructRef(void* ptr) const override
+    /*void setRef(const ValueHolder& source) override
+    {
+        assert(typeId == source.getTypeId());
+        setVal(static_cast<const TypeValueHolder&>(source).get());
+    }*/
+
+    /*ValueHolder* constructRef(void* ptr) const override
     {
         using RefHolder = SpecTypeValueHolder<const ValueRef>;
         RefHolder* refHolder = static_cast<RefHolder*>(RefHolder::specTypeId.construct(ptr));
-        refHolder->set(get());
+        refHolder->setVal(get());
         return refHolder;
-    }
+    }*/
 
     const TypeId& getTypeId() const override
     {
@@ -133,13 +176,19 @@ class SpecTypeValueHolder : public TypeValueHolder<std::remove_cvref_t<T>>
 public:
     using ValueType = std::remove_cvref_t<T>;
 
-    void set(T val)
+    void setVal(T val)
     {
         storedValue = std::move(val);
-        TypeValueHolder<ValueType>::set(*storedValue);
+        TypeValueHolder<ValueType>::setVal(*storedValue);
     }
 
-    const TypeId& getTypeId() const override
+    /*void set(const ValueHolder& source) override
+    {
+        assert(specTypeId == source.getSpecTypeId());
+        setVal(static_cast<const SpecTypeValueHolder<T>&>(source).get());
+    }*/
+
+    const TypeId& getSpecTypeId() const override
     {
         return specTypeId;
     }
@@ -160,12 +209,18 @@ class SpecTypeValueHolder<T&> : public TypeValueHolder<std::remove_cv_t<T>>
 public:
     using ValueType = std::remove_cv_t<T>;
 
-    void set(T& val)
+    void setVal(T& val)
     {
-        TypeValueHolder<ValueType>::set(const_cast<ValueType&>(val));
+        TypeValueHolder<ValueType>::setVal(const_cast<ValueType&>(val));
     }
 
-    const TypeId& getTypeId() const override
+    /*void set(const ValueHolder& source) override
+    {
+        assert(specTypeId == source.getSpecTypeId());
+        setVal(static_cast<const SpecTypeValueHolder<T&>&>(source).get());
+    }*/
+
+    const TypeId& getSpecTypeId() const override
     {
         return specTypeId;
     }
@@ -183,13 +238,19 @@ class SpecTypeValueHolder<std::unique_ptr<T>> : public TypeValueHolder<std::remo
 public:
     using ValueType = std::remove_cv_t<T>;
 
-    void set(std::unique_ptr<T> val)
+    void setVal(std::unique_ptr<T> val)
     {
         storedValue = std::move(val);
         TypeValueHolder<ValueType>::value = const_cast<ValueType*>(storedValue.get());
     }
 
-    const TypeId& getTypeId() const override
+    /*void set(const ValueHolder& source) override
+    {
+        assert(specTypeId == source.getSpecTypeId());
+        setVal(static_cast<const SpecTypeValueHolder<std::unique_ptr<T>>&>(source).get());
+    }*/
+
+    const TypeId& getSpecTypeId() const override
     {
         return specTypeId;
     }
@@ -219,7 +280,7 @@ public:
 
     static void set(ValueHolder& holder, T val)
     {
-        static_cast<SpecTypeHolder&>(holder).set(std::forward<T>(val));
+        static_cast<SpecTypeHolder&>(holder).setVal(std::forward<T>(val));
     }
 };
 

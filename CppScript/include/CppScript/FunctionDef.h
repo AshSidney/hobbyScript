@@ -32,8 +32,8 @@ struct FunctionContext
     PlaceData returnPlace;
     std::vector<PlaceData> argPlaces;
     std::vector<int> jumps;
-    CodeBlock* currentCode{ nullptr };
-    Module* currentModule{ nullptr };
+    CodeBlock* currentCode { nullptr };
+    const DataBlockDef::Layout* moduleLayout;
 
     const TypeId& getDataType(const PlaceData& place) const;
 };
@@ -222,7 +222,7 @@ private:
     template <size_t ...I>
     bool validateArguments(const FunctionContext& context, std::initializer_list<const TypeId*> argTypes, std::index_sequence<I...>) const
     {
-        return argTypes.size() == context.argPlaces.size() && ((*std::data(argTypes)[I] == context.getDataType(context.argPlaces[I])) && ...);
+        return argTypes.size() == context.argPlaces.size() && ((*std::data(argTypes)[I] == *context.getDataType(context.argPlaces[I]).basicTypeId) && ...);
     }
 
     template <template<typename> typename O>
@@ -250,7 +250,7 @@ private:
 };
 
 
-class CPPSCRIPT_API Module : public DataBlock
+class CPPSCRIPT_API Module : public DataBlockOld
 {
 public:
     Module(std::string_view name);

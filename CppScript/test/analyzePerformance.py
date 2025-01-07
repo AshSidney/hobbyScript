@@ -1,10 +1,10 @@
 import subprocess
 
-def getRslts():
+def getRslts(filter):
     count = 32
     results = {}
     for i in range(count):
-        rslt = subprocess.run('/Projects/hobbyScript/build/bin/CppScriptTest.exe --gtest_filter=CoreModulePerformanceFixture*Cache*',
+        rslt = subprocess.run('/Projects/hobbyScript/build/bin/CppScriptTest.exe --gtest_filter=' + filter,
                             capture_output=True)
         for ln in rslt.stdout.splitlines():
             parts = ln.decode().split()
@@ -15,8 +15,7 @@ def getRslts():
                 if id not in results:
                     results[id] = []
                 results[id].append(tm)
-        print(i)
     for key, data in results.items():
         print(key, sorted(data))
 
-getRslts()
+getRslts('*Fibonacci_OldComparison*')
