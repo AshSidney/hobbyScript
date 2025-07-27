@@ -95,45 +95,6 @@ void DataBlockDef::Builder::clear()
 }
 
 
-DataBlockOld::DataBlockOld(const PlaceType type) : placesType(type)
-{}
-
-
-PlaceData DataBlockOld::addPlace(PlaceTypeOffset place)
-{
-    const TypeLayout typeLayout = place.typeId->layout;
-    assert(MemoryAllocator::isAligned(typeLayout.size, typeLayout.alignment));
-    const size_t placeIndex = placeTypeOffsets.size();
-    placeIndices.push_back(placeIndex);
-    placeTypeOffsets.push_back(std::move(place));
-    size_t& placeOffset = placeTypeOffsets[placeIndex].offset;
-    placeOffset = blockLayout.size;
-    if (!MemoryAllocator::isAligned(placeOffset, typeLayout.alignment))
-    {
-        for (size_t index = placeIndex; index > 0; --index)
-        {
-            size_t& currIndex = placeIndices[index];
-            size_t& prevIndex = placeIndices[index - 1];
-            currIndex = prevIndex;
-            placeOffset = placeTypeOffsets[currIndex].offset;
-            placeTypeOffsets[currIndex].offset += typeLayout.size;
-            if (MemoryAllocator::isAligned(placeOffset, typeLayout.alignment))
-            {
-                prevIndex = placeIndex;
-                break;
-            }
-        }
-    }
-    blockLayout += typeLayout;
-    return { placesType, placeIndex };
-}
-
-const TypeId* DataBlockOld::getPlaceType(const size_t index) const
-{
-    return index < placeTypeOffsets.size() ? placeTypeOffsets[index].typeId->basicTypeId : nullptr;
-}
-
-
 CodeBlock::CodeBlock(DataBlockDef data) : dataDef(std::move(data))
 {}
 

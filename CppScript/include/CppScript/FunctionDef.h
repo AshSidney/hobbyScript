@@ -57,7 +57,7 @@ public:
         return ValueAccess::get(context.get(*this));
     }
 
-    void set(const ExecutionContext& context, T val) const
+    void set(const ExecutionContext& context, T&& val) const
     {
         ValueAccess::set(context.get(*this), std::forward<T>(val));
     }
@@ -83,7 +83,7 @@ public:
         return ValueAccess::get(*valueHolder);
     }
 
-    void set(const ExecutionContext& context, T val) const
+    void set(const ExecutionContext& context, T&& val) const
     {
         ValueAccess::set(*valueHolder, std::forward<T>(val));
     }
@@ -250,10 +250,10 @@ private:
 };
 
 
-class CPPSCRIPT_API Module : public DataBlockOld
+class CPPSCRIPT_API Module : public DataBlock<>
 {
 public:
-    Module(std::string_view name);
+    Module(std::string_view name, const DataBlockDef::Layout& layout);
 
     std::unique_ptr<Function> buildFunction(FunctionContext& context) const;
 

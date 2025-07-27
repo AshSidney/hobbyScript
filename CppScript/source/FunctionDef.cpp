@@ -18,7 +18,7 @@ const TypeId& FunctionContext::getDataType(const PlaceData& place) const
 }
 
 
-Module::Module(std::string_view name) : DataBlockOld(PlaceType::Module), name(name)
+Module::Module(std::string_view name, const DataBlockDef::Layout& layout) : DataBlock<>(layout), name(name)
 {}
 
 std::unique_ptr<Function> Module::buildFunction(FunctionContext& context) const

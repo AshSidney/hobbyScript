@@ -205,7 +205,7 @@ bool greater(const long long& left, const long long& right)
 
 Module createLegacyModule()
 {
-    Module legacyMod{"legacy"};
+    Module legacyMod{"legacy", {}};
     legacyMod.defFunction("=", &assign)
         .defFunction("+=", &add)
         .defFunction("swap", &swap)

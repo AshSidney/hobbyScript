@@ -7,7 +7,7 @@ namespace CppScript
 
 Module createCoreModule()
 {
-    Module coreModule{"core"};
+    Module coreModule{"core", {}};
 
     auto intConstr = [](const std::string& val) { return IntValue{val}; };
     auto intCopyConstr = [](const IntValue& val) { return IntValue{val}; };

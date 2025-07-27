@@ -17,20 +17,21 @@ const unsigned int lowBitsCount = segBitsCount - 1;
 const SegType topBitMask = 1ull << lowBitsCount;
 const SegType lowBitsMask = ~topBitMask;
 
-std::tuple<SegType, SegType> add(const SegType leftOp, const SegType rightOp, const SegType carry)
+constexpr SegType getCarry(const SegType leftOp, const SegType rightOp, const SegType sum)
 {
-	const SegType topBit = (leftOp ^ rightOp) & topBitMask;
-	const SegType lowSum = (leftOp & lowBitsMask) + (rightOp & lowBitsMask) + carry;
-	const SegType newCarry = ((leftOp & rightOp) | (lowSum & topBit)) >> lowBitsCount;
-	return { lowSum ^ topBit, newCarry };
+	return ((leftOp & rightOp) | ((leftOp | rightOp) & ~sum)) >> lowBitsCount;
 }
 
-std::tuple<SegType, SegType> subtract(const SegType leftOp, const SegType rightOp, const SegType carry)
+constexpr std::tuple<SegType, SegType> add(const SegType leftOp, const SegType rightOp, const SegType carry)
 {
-	const SegType topBit = ~(leftOp ^ rightOp) & topBitMask;
-	const SegType lowDiff = (leftOp | topBitMask) - (rightOp & lowBitsMask) - carry;
-	const SegType newCarry = ((~leftOp & rightOp) | (~lowDiff & topBit)) >> lowBitsCount;
-	return { lowDiff ^ topBit, newCarry };
+	const SegType result = leftOp + rightOp + carry;
+	return { result, getCarry(leftOp, rightOp, result) };
+}
+
+constexpr std::tuple<SegType, SegType> subtract(const SegType leftOp, const SegType rightOp, const SegType carry)
+{
+	const SegType result = leftOp - rightOp - carry;
+	return { result, getCarry(result, rightOp, leftOp) };
 }
 
 const unsigned int halfBitsCount = segBitsCount / 2;
@@ -38,7 +39,7 @@ const SegType halfSegValue = 1ull << halfBitsCount;
 const SegType bottomHalfMask = halfSegValue - 1;
 const SegType topHalfMask = ~bottomHalfMask;
 
-std::tuple<SegType, SegType> multiply(const SegType leftOp, const SegType rightOp)
+constexpr std::tuple<SegType, SegType> multiply(const SegType leftOp, const SegType rightOp)
 {
 	const SegType leftOpBottom = leftOp & bottomHalfMask;
 	const SegType leftOpTop = (leftOp & topHalfMask) >> halfBitsCount;
@@ -54,7 +55,7 @@ std::tuple<SegType, SegType> multiply(const SegType leftOp, const SegType rightO
 	return { bottomMidSum, topMidSum };
 }
 
-std::tuple<SegType, SegType> divide(const SegType topLeft, const SegType midLeft, const SegType bottomLeft, const SegType rightOp, const unsigned int shift)
+constexpr std::tuple<SegType, SegType> divide(const SegType topLeft, const SegType midLeft, const SegType bottomLeft, const SegType rightOp, const unsigned int shift)
 {
 	const auto invShift = segBitsCount - shift;
 	SegType remainder = topLeft << shift | midLeft >> invShift;
@@ -68,12 +69,12 @@ std::tuple<SegType, SegType> divide(const SegType topLeft, const SegType midLeft
 	return { stdResult, topResult + carry};
 }
 
-bool areUpperBitsZero(const SegType value, const unsigned int bitPosition)
+constexpr bool areUpperBitsZero(const SegType value, const unsigned int bitPosition)
 {
 	return (value & ~((1ull << bitPosition) - 1)) == 0;
 }
 
-unsigned int getTopBit(const SegType value)
+constexpr unsigned int getTopBit(const SegType value)
 {
 	unsigned int currBit = halfBitsCount;
 	for (unsigned int bitStep = currBit >> 1; bitStep > 0; bitStep >>= 1)

@@ -50,7 +50,7 @@ protected:
             .defFunction("==", &TestedClass::equal);
     }
 
-    Module testModule{"testModule"};
+    Module testModule{"testModule", {}};
 };
 
 TEST_F(FunctionDefFixture, FunctionCreationAndExecution)

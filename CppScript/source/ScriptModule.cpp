@@ -14,7 +14,7 @@ void ScriptFunction::execute(ExecutionContext& context) const
 
 
 ScriptModule::ScriptModule(std::string_view name, CodeBlock code)
-    : Module(name), code(std::move(code))
+    : Module(name, code.getDataLayout()), code(std::move(code))
 {}
 
 }
