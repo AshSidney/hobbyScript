@@ -1,21 +1,40 @@
 import subprocess
+import random
 
-def getRslts(filter):
-    count = 32
+def getRslts(count, indexed, filters):
     results = {}
     for i in range(count):
-        rslt = subprocess.run('/Projects/hobbyScript/build/bin/CppScriptTest.exe --gtest_filter=' + filter,
-                            capture_output=True)
-        for ln in rslt.stdout.splitlines():
-            parts = ln.decode().split()
-            if len(parts) > 2 and parts[1] == 'OK':
-                idx = parts[3].find('.')
-                id = parts[3][idx + 1:]
-                tm = int(parts[4][1:])
-                if id not in results:
-                    results[id] = []
-                results[id].append(tm)
+        print(i)
+        random.shuffle(filters)
+        for filter in filters:
+            print(filter)
+            rslt = subprocess.run('build/bin/CppScriptTest.exe --gtest_filter=' + filter,
+                capture_output=True)
+            for ln in rslt.stdout.splitlines():
+                parts = ln.decode().split()
+                if len(parts) > 2 and parts[1] == 'OK':
+                    idx = parts[3].find('.')
+                    id = parts[3][idx + 1:]
+                    if indexed:
+                        idx = id.find('/')
+                        if idx > 0 and idx < len(id):
+                            idx = int(id[idx + 1:])
+                        if idx not in results:
+                            results[idx] = {}
+                        res = results[idx]
+                    else:
+                        res = results
+                    tm = int(parts[4][1:])
+                    if id not in res:
+                        res[id] = []
+                    res[id].append(tm)
     for key, data in results.items():
-        print(key, sorted(data))
+        if indexed:
+            for idx, dt in data.items():
+                print(idx, sorted(dt))
+        else:
+            print(key, sorted(data))
 
-getRslts('*Fibonacci_OldComparison*')
+getRslts(8, True, ['*FibonacciInstances*Variant*', '*FibonacciInstances*Custom*', '*FibonacciInstances*Virtual*', '*FibonacciInstances*Lambda*',
+             '*FibonacciInstances*OldNoCache*', '*FibonacciInstances*OldCache*'])
+#getRslts(64, False, ['CoreModulePerformanceFixture.Fibonacci*', 'CoreOperationPerformanceStdIntFixture*'])

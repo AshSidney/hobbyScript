@@ -6,7 +6,7 @@
 #include <stdexcept>
 #include <cassert>
 
-namespace CppScript
+namespace CppScriptOld
 {
 
 struct CPPSCRIPT_API TypeLayout
@@ -38,10 +38,10 @@ constexpr TypeLayout operator+(const TypeLayout& left, const TypeLayout& right)
 
 class ValueHolder;
 
-class CPPSCRIPT_API TypeId
+class CPPSCRIPT_API TypeIdOld
 {
 public:
-    virtual ~TypeId() noexcept = default;
+    virtual ~TypeIdOld() noexcept = default;
 
     virtual ValueHolder* construct(void* ptr) const
     {
@@ -54,14 +54,14 @@ public:
     }
 
     TypeLayout layout;
-    const TypeId* basicTypeId{ nullptr };
-    const TypeId* refTypeId{ nullptr };
+    const TypeIdOld* basicTypeId{ nullptr };
+    const TypeIdOld* refTypeId{ nullptr };
     bool isReference{ false };
 };
 
-extern TypeId noTypeId;
+extern TypeIdOld noTypeId;
 
-CPPSCRIPT_API constexpr bool operator==(const TypeId& left, const TypeId& right)
+CPPSCRIPT_API constexpr bool operator==(const TypeIdOld& left, const TypeIdOld& right)
 {
     return &left == &right;
 }
@@ -77,20 +77,21 @@ public:
 
     //virtual ValueHolder* constructRef(void* ptr) const = 0;
 
-    virtual const TypeId& getTypeId() const = 0;
-    virtual const TypeId& getSpecTypeId() const = 0;
+    virtual const TypeIdOld& getTypeId() const = 0;
+    virtual const TypeIdOld& getSpecTypeId() const = 0;
 };
 
 
+template <typename T> class TypeValueHolder;
 template <typename T> class SpecTypeValueHolder;
 
 template <typename T>
-class ValueTypeId : public TypeId
+class ValueTypeIdOld : public TypeIdOld
 {
 public:
     using Holder = SpecTypeValueHolder<T>;
 
-    constexpr ValueTypeId()
+    constexpr ValueTypeIdOld()
     {
         layout = TypeLayout::make<Holder>();
         basicTypeId = &Holder::typeId;
@@ -114,13 +115,13 @@ public:
 };
 
 
-class CPPSCRIPT_API ValueNotAvailable : public std::logic_error
+class CPPSCRIPT_API ValueNotAvailableOld : public std::logic_error
 {
 public:
-	ValueNotAvailable(const TypeId& typeId): std::logic_error("Value not available"), typeId(typeId)
+	ValueNotAvailableOld(const TypeIdOld& typeId): std::logic_error("Value not available"), typeId(typeId)
     {}
 
-    const TypeId& typeId;
+    const TypeIdOld& typeId;
 };
 
 
@@ -155,19 +156,19 @@ public:
         return refHolder;
     }*/
 
-    const TypeId& getTypeId() const override
+    const TypeIdOld& getTypeId() const override
     {
         return typeId;
     }
 
-    static TypeId typeId;
+    static TypeIdOld typeId;
 
 protected:
     ValuePtr value{ nullptr };
 };
 
 template <typename T>
-TypeId TypeValueHolder<T>::typeId;
+TypeIdOld TypeValueHolder<T>::typeId;
 
 
 template <typename T>
@@ -188,19 +189,19 @@ public:
         setVal(static_cast<const SpecTypeValueHolder<T>&>(source).get());
     }*/
 
-    const TypeId& getSpecTypeId() const override
+    const TypeIdOld& getSpecTypeId() const override
     {
         return specTypeId;
     }
 
-    static ValueTypeId<T> specTypeId;
+    static ValueTypeIdOld<T> specTypeId;
 
 private:
     std::optional<ValueType> storedValue;
 };
 
 template <typename T>
-ValueTypeId<T> SpecTypeValueHolder<T>::specTypeId;
+ValueTypeIdOld<T> SpecTypeValueHolder<T>::specTypeId;
 
 
 template <typename T>
@@ -220,16 +221,16 @@ public:
         setVal(static_cast<const SpecTypeValueHolder<T&>&>(source).get());
     }*/
 
-    const TypeId& getSpecTypeId() const override
+    const TypeIdOld& getSpecTypeId() const override
     {
         return specTypeId;
     }
 
-    static ValueTypeId<T&> specTypeId;
+    static ValueTypeIdOld<T&> specTypeId;
 };
 
 template <typename T>
-ValueTypeId<T&> SpecTypeValueHolder<T&>::specTypeId;
+ValueTypeIdOld<T&> SpecTypeValueHolder<T&>::specTypeId;
 
 
 template <typename T>
@@ -250,19 +251,19 @@ public:
         setVal(static_cast<const SpecTypeValueHolder<std::unique_ptr<T>>&>(source).get());
     }*/
 
-    const TypeId& getSpecTypeId() const override
+    const TypeIdOld& getSpecTypeId() const override
     {
         return specTypeId;
     }
 
-    static ValueTypeId<std::unique_ptr<T>> specTypeId;
+    static ValueTypeIdOld<std::unique_ptr<T>> specTypeId;
 
 private:
     std::unique_ptr<ValueType> storedValue;
 };
 
 template <typename T>
-ValueTypeId<std::unique_ptr<T>> SpecTypeValueHolder<std::unique_ptr<T>>::specTypeId;
+ValueTypeIdOld<std::unique_ptr<T>> SpecTypeValueHolder<std::unique_ptr<T>>::specTypeId;
 
 
 template <typename T>

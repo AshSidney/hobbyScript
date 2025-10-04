@@ -1,6 +1,6 @@
 #include <CppScript/ScriptModule.h>
 
-namespace CppScript
+namespace CppScriptOld
 {
 
 ScriptFunction::ScriptFunction(const CodeBlock& code, DataBlockDef::Layout data)

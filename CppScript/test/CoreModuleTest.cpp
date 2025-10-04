@@ -6,7 +6,7 @@
 #include "Fibonacci.h"
 #include "TestUtils.h"
 
-using namespace CppScript;
+using namespace CppScriptOld;
 
 
 class CoreModuleFixture : public testing::Test
@@ -145,23 +145,22 @@ TEST_F(CoreModuleFixture, Fibonacci_Cache)
 }
 
 
-struct FibonacciParams
+struct FibonacciParamsOld
 {
-    EnumFlag<FunctionOptions> options;
     IntValue count;
     IntValue result;
 };
 
-class CoreModulePerformanceFixture : public CoreModuleFixture, public testing::WithParamInterface<FibonacciParams>
+class CoreModulePerformanceFixture : public CoreModuleFixture, public testing::WithParamInterface<FibonacciParamsOld>
 {
 protected:
-    const int repeats{100000};
+    const int repeats{10000};
 };
 
-TEST_P(CoreModulePerformanceFixture, Fibonacci)
+TEST_P(CoreModulePerformanceFixture, FibonacciOldNoCache)
 {
     ExecutionContext context;
-    auto [code, countVal, resultVal] = createFibonacci(context, GetParam().count, GetParam().options);
+    auto [code, countVal, resultVal] = createFibonacci(context, GetParam().count, {});
     DataBlock<> data { code.getDataLayout() };
     context.run(code, data);
     EXPECT_EQ(*resultVal, GetParam().result);
@@ -173,13 +172,30 @@ TEST_P(CoreModulePerformanceFixture, Fibonacci)
     EXPECT_EQ(*resultVal, GetParam().result);
 }
 
-INSTANTIATE_TEST_SUITE_P(FibonacciInstances, CoreModulePerformanceFixture,
-    testing::Values(FibonacciParams{{}, 50_I, 12586269025_I},
-        FibonacciParams{{FunctionOptions::Cache}, 50_I, 12586269025_I},
-        FibonacciParams{{}, 200_I, fibonacci2<IntValue>(200)},
-        FibonacciParams{{FunctionOptions::Cache}, 200_I, fibonacci2<IntValue>(200)},
-        FibonacciParams{{}, 1000_I, fibonacci2<IntValue>(1000)},
-        FibonacciParams{{FunctionOptions::Cache}, 1000_I, fibonacci2<IntValue>(1000)}));
+TEST_P(CoreModulePerformanceFixture, FibonacciOldCache)
+{
+    ExecutionContext context;
+    auto [code, countVal, resultVal] = createFibonacci(context, GetParam().count, {FunctionOptions::Cache});
+    DataBlock<> data { code.getDataLayout() };
+    context.run(code, data);
+    EXPECT_EQ(*resultVal, GetParam().result);
+
+	for (int i = 0; i < repeats; ++i)
+    {
+        context.run(code, data);
+    }
+    EXPECT_EQ(*resultVal, GetParam().result);
+}
+
+INSTANTIATE_TEST_SUITE_P(FibonacciInstancesOld, CoreModulePerformanceFixture,
+    testing::Values(FibonacciParamsOld{50_I, 12586269025_I},
+        FibonacciParamsOld{51_I, fibonacci2<IntValue>(51)},
+        FibonacciParamsOld{89_I, fibonacci2<IntValue>(89)},
+        FibonacciParamsOld{90_I, fibonacci2<IntValue>(90)},
+        FibonacciParamsOld{200_I, fibonacci2<IntValue>(200)},
+        FibonacciParamsOld{201_I, fibonacci2<IntValue>(201)},
+        FibonacciParamsOld{999_I, fibonacci2<IntValue>(999)},
+        FibonacciParamsOld{1000_I, fibonacci2<IntValue>(1000)}));
 
 
 
@@ -191,6 +207,11 @@ long long assign(const long long& val)
 void add(long long& left, const long long& right)
 {
     left += right;
+}
+
+void subtract(long long& left, const long long& right)
+{
+    left -= right;
 }
 
 void swap(long long& left, long long& right)
@@ -208,9 +229,46 @@ Module createLegacyModule()
     Module legacyMod{"legacy", {}};
     legacyMod.defFunction("=", &assign)
         .defFunction("+=", &add)
+        .defFunction("-=", &subtract)
         .defFunction("swap", &swap)
         .defFunction(">", &greater);
     return legacyMod;
+}
+
+std::tuple<CodeBlock, PlaceData> createFibonacci2(const Module& legacyMod, const long long count)
+{
+    DataBlockDef::Builder builder;
+    const PlaceData placeStart0{ PlaceType::Module, builder.addPlace(makeValue(long long(0))) };
+    const PlaceData placeStart1{ PlaceType::Module, builder.addPlace(makeValue(long long(1))) };
+    const PlaceData placeStart2{ PlaceType::Module, builder.addPlace(makeValue(long long(2))) };
+    const PlaceData placeCountConst{ PlaceType::Module, builder.addPlace(makeValue(count)) };
+    const PlaceData placeCount{ PlaceType::Module, builder.addPlace(SpecTypeValueHolder<long long>::specTypeId) };
+    const PlaceData placeFirst{ PlaceType::Module, builder.addPlace(SpecTypeValueHolder<long long>::specTypeId) };
+    const PlaceData placeSecond{ PlaceType::Module, builder.addPlace(SpecTypeValueHolder<long long>::specTypeId) };
+    CodeBlock code{ { builder.build() } };
+    FunctionContext funcCont{"=", {FunctionOptions::Cache}, placeFirst, {placeStart0}, {}, &code, &code.getDataLayout()};
+    code.operations.push_back(legacyMod.buildFunction(funcCont));
+    funcCont.returnPlace = placeSecond;
+    funcCont.argPlaces = {placeStart1};
+    code.operations.push_back(legacyMod.buildFunction(funcCont));
+    funcCont.returnPlace = placeCount;
+    funcCont.argPlaces = {placeCountConst};
+    code.operations.push_back(legacyMod.buildFunction(funcCont));
+    funcCont = {">", {FunctionOptions::Cache, FunctionOptions::Jump}, {PlaceType::Void}, {placeCount, placeStart1}, {1, 3}, &code, &code.getDataLayout()};
+    code.operations.push_back(legacyMod.buildFunction(funcCont));
+    funcCont = {"+=", {FunctionOptions::Cache}, {PlaceType::Void}, {placeFirst, placeSecond}, {}, &code, &code.getDataLayout()};
+    code.operations.push_back(legacyMod.buildFunction(funcCont));
+    funcCont = {"+=", {FunctionOptions::Cache}, {PlaceType::Void}, {placeSecond, placeFirst}, {}, &code, &code.getDataLayout()};
+    code.operations.push_back(legacyMod.buildFunction(funcCont));
+    funcCont = {"-=", {FunctionOptions::Cache}, {PlaceType::Void}, {placeCount, placeStart2}, {}, &code, &code.getDataLayout()};
+    code.operations.push_back(legacyMod.buildFunction(funcCont));
+    funcCont = {">", {FunctionOptions::Cache, FunctionOptions::Jump}, {PlaceType::Void}, {placeCount, placeStart1}, {-3, 1}, &code, &code.getDataLayout()};
+    code.operations.push_back(legacyMod.buildFunction(funcCont));
+    funcCont = {">", {FunctionOptions::Cache, FunctionOptions::Jump}, {PlaceType::Void}, {placeCount, placeStart0}, {2, 1}, &code, &code.getDataLayout()};
+    code.operations.push_back(legacyMod.buildFunction(funcCont));
+    funcCont = {"=", {FunctionOptions::Cache}, placeSecond, {placeFirst}, {}, &code, &code.getDataLayout()};
+    code.operations.push_back(legacyMod.buildFunction(funcCont));
+    return { std::move(code), placeSecond };
 }
 
 std::tuple<CodeBlock, PlaceData> createFibonacciOld(const Module& legacyMod, const long long count)
@@ -241,6 +299,26 @@ std::tuple<CodeBlock, PlaceData> createFibonacciOld(const Module& legacyMod, con
     funcCont = {">", {FunctionOptions::Cache, FunctionOptions::Jump}, {PlaceType::Void}, {placeCount, placeStart1}, {-3, 1}, &code, &code.getDataLayout()};
     code.operations.push_back(legacyMod.buildFunction(funcCont));
     return { std::move(code), placeSecond };
+}
+
+TEST_F(CoreModulePerformanceFixture, Fibonacci2_Old)
+{
+    Module legacyMod{ createLegacyModule() };
+    auto [code, placeResult] = createFibonacci2(legacyMod, 90);
+    DataBlock<> data { code.getDataLayout() };
+
+    ExecutionContext context;
+    context.run(code, data);
+    const auto checkResult = fibonacci2<long long>(90);
+    const auto& resultRef = static_cast<TypeValueHolder<long long>&>(data.get(placeResult.index));
+    EXPECT_EQ(resultRef.get(), checkResult);
+
+	for (size_t i = 0; i < 10000; ++i)
+	{
+        context.run(code, data);
+	}
+
+    EXPECT_EQ(resultRef.get(), checkResult);
 }
 
 TEST_F(CoreModulePerformanceFixture, Fibonacci_OldComparison)

@@ -5,6 +5,7 @@
 
 #include "TestUtils.h"
 
+using namespace CppScriptOld;
 using namespace CppScript;
 
 TEST(ValueHolderTest, ValueAndType)
@@ -49,10 +50,10 @@ TEST(ValueHolderTest, ValueAndType)
 
 TEST(ValueHolderTest, TypeId_ConstructValueHolder)
 {
-    const ValueTypeId<IntValue>& intTypeId{ SpecTypeValueHolder<IntValue>::specTypeId };
-    const ValueTypeId<float>& floatTypeId{ SpecTypeValueHolder<float>::specTypeId };
-    const ValueTypeId<bool>& boolTypeId{ SpecTypeValueHolder<bool>::specTypeId };
-    const ValueTypeId<const IntValue&>& intTypeRefId{ SpecTypeValueHolder<const IntValue&>::specTypeId };
+    const ValueTypeIdOld<IntValue>& intTypeId{ SpecTypeValueHolder<IntValue>::specTypeId };
+    const ValueTypeIdOld<float>& floatTypeId{ SpecTypeValueHolder<float>::specTypeId };
+    const ValueTypeIdOld<bool>& boolTypeId{ SpecTypeValueHolder<bool>::specTypeId };
+    const ValueTypeIdOld<const IntValue&>& intTypeRefId{ SpecTypeValueHolder<const IntValue&>::specTypeId };
     EXPECT_EQ(intTypeId.layout, TypeLayout::make<SpecTypeValueHolder<IntValue>>());
     EXPECT_EQ(floatTypeId.layout, TypeLayout::make<SpecTypeValueHolder<float>>());
     EXPECT_EQ(boolTypeId.layout, TypeLayout::make<SpecTypeValueHolder<bool>>());
@@ -78,7 +79,7 @@ TEST(ValueHolderTest, TypeId_ConstructRef)
     SpecTypeValueHolder<IntValue> intVal;
     intVal.setVal(3333444455556666_I);
     auto buffer = std::make_unique<char[]>(intVal.specTypeId.layout.size);
-    const ValueTypeId<const IntValue&>& intTypeRefId{ SpecTypeValueHolder<const IntValue&>::specTypeId };
+    const ValueTypeIdOld<const IntValue&>& intTypeRefId{ SpecTypeValueHolder<const IntValue&>::specTypeId };
     auto* intValRef = static_cast<SpecTypeValueHolder<const IntValue&>*>(intTypeRefId.constructRef(buffer.get(), intVal));
     ASSERT_NE(intValRef, nullptr);
     EXPECT_EQ(intVal.get(), 3333444455556666_I);
@@ -87,7 +88,7 @@ TEST(ValueHolderTest, TypeId_ConstructRef)
 
 /*TEST(ValueHolderTest, ValueHolder_ConstructRef_Old)
 {
-    const ValueTypeId<IntValue>& intTypeId{ SpecTypeValueHolder<IntValue>::specTypeId };
+    const ValueTypeIdOld<IntValue>& intTypeId{ SpecTypeValueHolder<IntValue>::specTypeId };
     auto buffer = std::make_unique<char[]>(intTypeId.layout.size * 2);
     auto* intVal = static_cast<SpecTypeValueHolder<IntValue>*>(intTypeId.construct(buffer.get()));
     intVal->setVal(3333444455556666_I);

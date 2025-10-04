@@ -53,20 +53,20 @@ TEST(IntValueTest, CreateLiteral)
 	EXPECT_EQ(toString(bigValue, { std::hex }), "-123456789abcdef01234");
 }
 
-TEST(IntValueTest, Compare)
+TEST(IntValueTest, SpaceshipOperator)
 {
-	EXPECT_EQ(compare(98765432109876543210_I, 98765432109876543210_I), Comparison::Equal);
-	EXPECT_EQ(compare(98765432109876543210_I, 98765432109876543211_I), Comparison::Less);
-	EXPECT_EQ(compare(98765432109876543210_I, 98765432109876543200_I), Comparison::Greater);
-	EXPECT_EQ(compare(-98765432109876543210_I, 98765432109876543210_I), Comparison::Less);
-	EXPECT_EQ(compare(-98765432109876543210_I, 98765432109876543211_I), Comparison::Less);
-	EXPECT_EQ(compare(-98765432109876543210_I, 98765432109876543200_I), Comparison::Less);
-	EXPECT_EQ(compare(-98765432109876543210_I, -98765432109876543210_I), Comparison::Equal);
-	EXPECT_EQ(compare(-98765432109876543210_I, -98765432109876543211_I), Comparison::Greater);
-	EXPECT_EQ(compare(-98765432109876543210_I, -98765432109876543200_I), Comparison::Less);
-	EXPECT_EQ(compare(98765432109876543210_I, -98765432109876543210_I), Comparison::Greater);
-	EXPECT_EQ(compare(98765432109876543210_I, -98765432109876543211_I), Comparison::Greater);
-	EXPECT_EQ(compare(98765432109876543210_I, -98765432109876543200_I), Comparison::Greater);
+	EXPECT_TRUE(98765432109876543210_I == 98765432109876543210_I);
+	EXPECT_TRUE(98765432109876543210_I < 98765432109876543211_I);
+	EXPECT_TRUE(98765432109876543210_I > 98765432109876543200_I);
+	EXPECT_TRUE(-98765432109876543210_I < 98765432109876543210_I);
+	EXPECT_TRUE(-98765432109876543210_I < 98765432109876543211_I);
+	EXPECT_TRUE(-98765432109876543210_I < 98765432109876543200_I);
+	EXPECT_TRUE(-98765432109876543210_I == -98765432109876543210_I);
+	EXPECT_TRUE(-98765432109876543210_I > -98765432109876543211_I);
+	EXPECT_TRUE(-98765432109876543210_I < -98765432109876543200_I);
+	EXPECT_TRUE(98765432109876543210_I > -98765432109876543210_I);
+	EXPECT_TRUE(98765432109876543210_I > -98765432109876543211_I);
+	EXPECT_TRUE(98765432109876543210_I > -98765432109876543200_I);
 }
 
 TEST(IntValueTest, Add)
@@ -127,7 +127,7 @@ TEST(IntValueTest, DivideAndModulo_Big)
 TEST(IntValueTest, DivideAndModulo_MultipleTimes)
 {
 	IntValue baseValue { 999888777666555444333222111000123456789987654321000009876543210_I};
-	for (IntValue div { 1000000000000000000000_I }; div < 1000000000000000100000_I; div += IntValue{1})
+	for (IntValue div { 1000000000000000000000_I }; div < 1000000000000000100000_I; div += 1_I)
 	{
 		IntValue divided = baseValue;
 		auto result = divided.divide(div);
@@ -147,93 +147,95 @@ TEST(IntValueTest, Fibonacci)
 	EXPECT_EQ(fibonacci2<IntValue>(1000), IntValue{fib1000});
 }
 
+constexpr int perfRepeats{ 10000 };
+
 TEST(IntValuePerformanceTest, Fibonacci_Small_SegType)
 {
 	const IntValue::SegType result{ 12586269025 };
-	for (int i = 0; i < 100000; ++i)
+	for (int i = 0; i < perfRepeats; ++i)
 		EXPECT_EQ(fibonacciSegType(50), result);
 }
 
 TEST(IntValuePerformanceTest, Fibonacci_Small)
 {
 	const IntValue result{ fib50 };
-	for (int i = 0; i < 100000; ++i)
+	for (int i = 0; i < perfRepeats; ++i)
 		EXPECT_EQ(fibonacci<IntValue>(50), result);
 }
 
 TEST(IntValuePerformanceTest, Fibonacci2_Small)
 {
 	const IntValue result{ fib50 };
-	for (int i = 0; i < 100000; ++i)
+	for (int i = 0; i < perfRepeats; ++i)
 		EXPECT_EQ(fibonacci2<IntValue>(50), result);
 }
 
 TEST(IntValuePerformanceTest, Fibonacci_Middle)
 {
 	const IntValue result { fib200 };
-	for (int i = 0; i < 100000; ++i)
+	for (int i = 0; i < perfRepeats; ++i)
 		EXPECT_EQ(fibonacci<IntValue>(200), result);
 }
 
 TEST(IntValuePerformanceTest, Fibonacci2_Middle)
 {
 	const IntValue result { fib200 };
-	for (int i = 0; i < 100000; ++i)
+	for (int i = 0; i < perfRepeats; ++i)
 		EXPECT_EQ(fibonacci2<IntValue>(200), result);
 }
 
 TEST(IntValuePerformanceTest, Fibonacci_Big)
 {
 	const IntValue result { fib1000 };
-	for (int i = 0; i < 100000; ++i)
+	for (int i = 0; i < perfRepeats; ++i)
 		EXPECT_EQ(fibonacci<IntValue>(1000), result);
 }
 
 TEST(IntValuePerformanceTest, Fibonacci2_Big)
 {
 	const IntValue result { fib1000 };
-	for (int i = 0; i < 100000; ++i)
+	for (int i = 0; i < perfRepeats; ++i)
 		EXPECT_EQ(fibonacci2<IntValue>(1000), result);
 }
 
 TEST(IntValuePerformanceTest, Fibonacci_SmallPtr)
 {
 	const IntValue result { fib50 };
-	for (int i = 0; i < 100000; ++i)
+	for (int i = 0; i < perfRepeats; ++i)
 		EXPECT_EQ(fibonacciPtr(50), result);
 }
 
 TEST(IntValuePerformanceTest, Fibonacci_MiddlePtr)
 {
 	const IntValue result { fib200 };
-	for (int i = 0; i < 100000; ++i)
+	for (int i = 0; i < perfRepeats; ++i)
 		EXPECT_EQ(fibonacciPtr(200), result);
 }
 
 TEST(IntValuePerformanceTest, Fibonacci_BigPtr)
 {
 	const IntValue result { fib1000 };
-	for (int i = 0; i < 100000; ++i)
+	for (int i = 0; i < perfRepeats; ++i)
 		EXPECT_EQ(fibonacciPtr(1000), result);
 }
 
 TEST(IntValuePerformanceTest, Fibonacci2_SmallPtr)
 {
 	const IntValue result { fib50 };
-	for (int i = 0; i < 100000; ++i)
+	for (int i = 0; i < perfRepeats; ++i)
 		EXPECT_EQ(fibonacci2Ptr(50), result);
 }
 
 TEST(IntValuePerformanceTest, Fibonacci2_MiddlePtr)
 {
 	const IntValue result { fib200 };
-	for (int i = 0; i < 100000; ++i)
+	for (int i = 0; i < perfRepeats; ++i)
 		EXPECT_EQ(fibonacci2Ptr(200), result);
 }
 
 TEST(IntValuePerformanceTest, Fibonacci2_BigPtr)
 {
 	const IntValue result { fib1000 };
-	for (int i = 0; i < 100000; ++i)
+	for (int i = 0; i < perfRepeats; ++i)
 		EXPECT_EQ(fibonacci2Ptr(1000), result);
 }

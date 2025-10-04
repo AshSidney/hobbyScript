@@ -3,7 +3,7 @@
 #include <CppScript/Definitions.h>
 #include <CppScript/FunctionDef.h>
 
-namespace CppScript
+namespace CppScriptOld
 {
 
 class CPPSCRIPT_API ScriptFunction : public Function

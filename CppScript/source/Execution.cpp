@@ -6,7 +6,7 @@
 #include <cstdlib>
 #include <cassert>
 
-namespace CppScript
+namespace CppScriptOld
 {
 
 std::byte* MemoryAllocator::allocate(const TypeLayout& layout)
@@ -43,7 +43,7 @@ DataBlockDef DataBlockDef::Builder::build()
     return result;
 }
 
-size_t DataBlockDef::Builder::addPlace(const TypeId& typeId)
+size_t DataBlockDef::Builder::addPlace(const TypeIdOld& typeId)
 {
     return addPlace(typeId, nullptr);
 }
@@ -52,11 +52,11 @@ size_t DataBlockDef::Builder::addPlace(std::unique_ptr<ValueHolder> value)
 {
     const ValueHolder* valuePtr = value.get();
     values.push_back(std::move(value));
-    const TypeId& typeId = *valuePtr->getSpecTypeId().refTypeId;
+    const TypeIdOld& typeId = *valuePtr->getSpecTypeId().refTypeId;
     return addPlace(typeId, valuePtr);
 }
 
-size_t DataBlockDef::Builder::addPlace(const TypeId& typeId, const ValueHolder* value)
+size_t DataBlockDef::Builder::addPlace(const TypeIdOld& typeId, const ValueHolder* value)
 {
     const TypeLayout typeLayout = typeId.layout;
     assert(MemoryAllocator::isAligned(typeLayout.size, typeLayout.alignment));

@@ -1,11 +1,11 @@
 #include <CppScript/FunctionDef.h>
 
-namespace CppScript
+namespace CppScriptOld
 {
 
-const TypeId& FunctionContext::getDataType(const PlaceData& place) const
+const TypeIdOld& FunctionContext::getDataType(const PlaceData& place) const
 {
-    const TypeId* foundType{ &noTypeId };
+    const TypeIdOld* foundType{ &noTypeId };
     if (place.argType == PlaceType::Local && currentCode != nullptr)
     {
         foundType = &currentCode->getDataLayout().values[place.index].getTypeId();

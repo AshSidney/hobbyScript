@@ -1,9 +1,9 @@
 #include <CppScript/ValueHolder.h>
 
 
-namespace CppScript
+namespace CppScriptOld
 {
 
-TypeId noTypeId;
+TypeIdOld noTypeId;
 
 }

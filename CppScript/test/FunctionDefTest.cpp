@@ -3,7 +3,7 @@
 #include <CppScript/FunctionDef.h>
 #include "TestUtils.h"
 
-using namespace CppScript;
+using namespace CppScriptOld;
 
 
 class TestedClass

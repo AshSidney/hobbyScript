@@ -1,5 +1,3 @@
-#pragma once
-
 #include <CppScript/IntValue.h>
 #include "IntUtils.h"
 #include <cmath>
@@ -11,11 +9,11 @@ namespace
 using StdIntType = CppScript::IntValue::StdIntType;
 using SegType = CppScript::IntValue::SegType;
 
-const unsigned int byteBitsCount = 8;
-const unsigned int segBitsCount = byteBitsCount * sizeof(SegType);
-const unsigned int lowBitsCount = segBitsCount - 1;
-const SegType topBitMask = 1ull << lowBitsCount;
-const SegType lowBitsMask = ~topBitMask;
+constexpr unsigned int byteBitsCount = 8;
+constexpr unsigned int segBitsCount = byteBitsCount * sizeof(SegType);
+constexpr unsigned int lowBitsCount = segBitsCount - 1;
+constexpr SegType topBitMask = 1ull << lowBitsCount;
+constexpr SegType lowBitsMask = ~topBitMask;
 
 constexpr SegType getCarry(const SegType leftOp, const SegType rightOp, const SegType sum)
 {
@@ -34,10 +32,10 @@ constexpr std::tuple<SegType, SegType> subtract(const SegType leftOp, const SegT
 	return { result, getCarry(result, rightOp, leftOp) };
 }
 
-const unsigned int halfBitsCount = segBitsCount / 2;
-const SegType halfSegValue = 1ull << halfBitsCount;
-const SegType bottomHalfMask = halfSegValue - 1;
-const SegType topHalfMask = ~bottomHalfMask;
+constexpr unsigned int halfBitsCount = segBitsCount / 2;
+constexpr SegType halfSegValue = 1ull << halfBitsCount;
+constexpr SegType bottomHalfMask = halfSegValue - 1;
+constexpr SegType topHalfMask = ~bottomHalfMask;
 
 constexpr std::tuple<SegType, SegType> multiply(const SegType leftOp, const SegType rightOp)
 {
@@ -85,20 +83,13 @@ constexpr unsigned int getTopBit(const SegType value)
 	return areUpperBitsZero(value, currBit) ? currBit - 1 : currBit;
 }
 
-
-// deprecated
-const auto StandardMax = std::numeric_limits<StdIntType>::max() >> 1;
-const auto StandardMultMax = static_cast<StdIntType>(std::sqrt(std::numeric_limits<StdIntType>::max()));
-
-const size_t longBitCount = segBitsCount;
-
 }
 
 
 namespace CppScript
 {
 
-DivideByZeroExpection::DivideByZeroExpection() : std::logic_error("Divide by zero")
+DivideByZeroException::DivideByZeroException() : std::logic_error("Divide by zero")
 {}
 
 
@@ -193,7 +184,7 @@ template <bool isAdd> void IntValue::addSubtract(const IntValue& otherValue)
 		segments.add(otherValue.segments, 0);
 	else
 	{
-		if (segments.less(otherValue.segments))
+		if (segments.compare(otherValue.segments) < 0)
 		{
 			const NumSegments tempSegments{ std::move(segments) };
 			segments = otherValue.segments;
@@ -227,7 +218,8 @@ void IntValue::NumSegments::clear()
 	values.clear();
 }
 
-Comparison IntValue::NumSegments::compare(const NumSegments& other, const Comparison less, const Comparison greater) const
+std::strong_ordering IntValue::NumSegments::compare(const NumSegments& other, const std::strong_ordering less,
+	const std::strong_ordering greater) const
 {
 	if (values.size() != other.values.size())
 		return values.size() < other.values.size() ? less : greater;
@@ -235,17 +227,7 @@ Comparison IntValue::NumSegments::compare(const NumSegments& other, const Compar
 	for (auto thisIt = values.crbegin(); thisIt != values.crend(); ++thisIt, ++otherIt)
 		if (*thisIt != *otherIt)
 			return *thisIt < *otherIt ? less : greater;
-	return Comparison::Equal;
-}
-
-bool IntValue::NumSegments::equal(const NumSegments& other) const
-{
-	return compare(other) == Comparison::Equal;
-}
-
-bool IntValue::NumSegments::less(const NumSegments& other) const
-{
-	return compare(other) == Comparison::Less;
+	return std::strong_ordering::equal;
 }
 
 bool IntValue::NumSegments::isZero() const
@@ -307,8 +289,8 @@ void IntValue::NumSegments::multiply(const NumSegments& multSegments)
 
 IntValue::NumSegments IntValue::NumSegments::divide(const NumSegments& divSegments)
 {
-	if (divSegments.equal(NumSegments{ 0 }))
-		throw DivideByZeroExpection{};
+	if (divSegments.compare(NumSegments{ 0 }) == 0)
+		throw DivideByZeroException{};
 	const bool noShift = divSegments.values.back() <= halfSegValue && divSegments.values.size() == 1;
 	const unsigned int shift = noShift ? 0
 		: (segBitsCount + halfBitsCount - 1 - getTopBit(divSegments.values.back())) % segBitsCount;
@@ -349,7 +331,7 @@ IntValue::NumSegments IntValue::NumSegments::divide(const NumSegments& divSegmen
 		partialResult.multiply(shiftedDiv);
 		subtract(partialResult, 0);
 	}
-	if (!less(shiftedDiv))
+	if (compare(shiftedDiv) >= 0)
 	{
 		result.add(NumSegments{ 1 }, 0);
 		subtract(shiftedDiv, 0);
@@ -365,10 +347,10 @@ void IntValue::NumSegments::shiftLeft(const unsigned int bitCount)
 	if (offset > 0)
 		values.insert(values.begin(), offset, 0);
 
-	const unsigned int shift = bitCount - offset * longBitCount;
+	const unsigned int shift = bitCount - offset * segBitsCount;
 	if (shift > 0)
 	{
-		const unsigned int nextShift = longBitCount - shift;
+		const unsigned int nextShift = segBitsCount - shift;
 		SegType prevSegment = 0;
 		for (auto segment = std::next(values.begin(), offset); segment != values.end(); ++segment)
 		{
@@ -383,7 +365,7 @@ void IntValue::NumSegments::shiftLeft(const unsigned int bitCount)
 
 void IntValue::NumSegments::shiftRight(const unsigned int bitCount)
 {
-	const unsigned int offset = bitCount / longBitCount;
+	const unsigned int offset = bitCount / segBitsCount;
 	if (offset > 0)
 	{
 		values.erase(values.begin(), std::next(values.begin(), offset));
@@ -394,10 +376,10 @@ void IntValue::NumSegments::shiftRight(const unsigned int bitCount)
 		}
 	}
 
-	const unsigned int shift = bitCount - offset * longBitCount;
+	const unsigned int shift = bitCount - offset * segBitsCount;
 	if (shift > 0)
 	{
-		const int nextShift = longBitCount - shift;
+		const int nextShift = segBitsCount - shift;
 		auto segment = values.begin();
 		for (auto nextSegment = std::next(segment); nextSegment != values.end(); ++segment, ++nextSegment)
 			*segment = (*segment >> shift) | (*nextSegment << nextShift);
@@ -419,9 +401,15 @@ IntValue operator ""_I(const char* value)
 	return IntValue{ value };
 }
 
-Comparison compare(const IntValue& left, const IntValue& right)
+ComparisonOld compare(const IntValue& left, const IntValue& right) noexcept
 {
-	Comparison result = left.sign ? Comparison::Greater : Comparison::Less;
+	const std::strong_ordering comp = left <=> right;
+	return comp == 0 ? ComparisonOld::Equal : comp < 0 ? ComparisonOld::Less : ComparisonOld::Greater;
+}
+
+std::strong_ordering operator<=>(const IntValue& left, const IntValue& right) noexcept
+{
+	std::strong_ordering result = left.sign ? std::strong_ordering::greater : std::strong_ordering::less;
 	if (left.sign == right.sign)
 		result = left.segments.compare(right.segments, invert(result), result);
 	return result;
@@ -429,12 +417,7 @@ Comparison compare(const IntValue& left, const IntValue& right)
 
 bool operator==(const IntValue& left, const IntValue& right)
 {
-	return compare(left, right) == Comparison::Equal;
-}
-
-bool operator<(const IntValue& left, const IntValue& right)
-{
-	return compare(left, right) == Comparison::Less;
+	return (left <=> right) == 0;
 }
 
 IntValue operator+(const IntValue& left, const IntValue& right)
@@ -499,7 +482,7 @@ std::ostream& operator<<(std::ostream& stream, const IntValue& value)
 		const char zeroChar { '0' };
 
 		std::vector<char> invRepr;
-		while (zero.less(remainingValue))
+		while (remainingValue.compare(zero) > 0)
 		{
 			auto newRemValue {remainingValue.divide(base)};
 			invRepr.push_back(static_cast<char>(remainingValue.getSegments().front()) + zeroChar);

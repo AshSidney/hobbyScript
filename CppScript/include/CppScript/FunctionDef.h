@@ -2,13 +2,15 @@
 
 #include <CppScript/Definitions.h>
 #include <CppScript/Execution.h>
-#include <CppScript/EnumFlag.h>
+#include <CppScript/EnumTraits.h>
 #include <memory>
 #include <vector>
 #include <tuple>
 #include <unordered_map>
 
-namespace CppScript
+using namespace CppScript;
+
+namespace CppScriptOld
 {
 
 enum class FunctionOptions
@@ -17,11 +19,29 @@ enum class FunctionOptions
     Jump
 };
 
-template<> struct EnumTraits<FunctionOptions>
-{
-    static const FunctionOptions last{ FunctionOptions::Jump };
-};
+}
 
+namespace CppScript
+{
+    
+/*template<> struct EnumTraitsOld<CppScriptOld::FunctionOptions>
+{
+    static constexpr CppScriptOld::FunctionOptions first{ CppScriptOld::FunctionOptions::Cache };
+    static constexpr CppScriptOld::FunctionOptions last{ CppScriptOld::FunctionOptions::Jump };
+};*/
+
+template<>
+constexpr auto enumItems<CppScriptOld::FunctionOptions>()
+{
+    return std::make_tuple(Id{"FunctionOptions"},
+        EnumItem<CppScriptOld::FunctionOptions, CppScriptOld::FunctionOptions::Cache>{"Cache"},
+        EnumItem<CppScriptOld::FunctionOptions, CppScriptOld::FunctionOptions::Jump>{"Jump"});
+}
+
+}
+
+namespace CppScriptOld
+{
 
 class Module;
 
@@ -35,7 +55,7 @@ struct FunctionContext
     CodeBlock* currentCode { nullptr };
     const DataBlockDef::Layout* moduleLayout;
 
-    const TypeId& getDataType(const PlaceData& place) const;
+    const TypeIdOld& getDataType(const PlaceData& place) const;
 };
 
 
@@ -220,7 +240,7 @@ private:
     }
 
     template <size_t ...I>
-    bool validateArguments(const FunctionContext& context, std::initializer_list<const TypeId*> argTypes, std::index_sequence<I...>) const
+    bool validateArguments(const FunctionContext& context, std::initializer_list<const TypeIdOld*> argTypes, std::index_sequence<I...>) const
     {
         return argTypes.size() == context.argPlaces.size() && ((*std::data(argTypes)[I] == *context.getDataType(context.argPlaces[I]).basicTypeId) && ...);
     }
@@ -319,6 +339,5 @@ private:
     std::string name;
     std::unordered_map<std::string, std::vector<std::unique_ptr<FunctionDef>>> functions;
 };
-
 
 }

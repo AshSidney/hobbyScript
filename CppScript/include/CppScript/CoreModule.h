@@ -5,7 +5,7 @@
 #include <string>
 #include <unordered_map>
 
-namespace CppScript
+namespace CppScriptOld
 {
 
 CPPSCRIPT_API Module createCoreModule();

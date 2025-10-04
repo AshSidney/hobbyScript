@@ -8,13 +8,13 @@
 
 #include "TestUtils.h"
 
-using namespace CppScript;
+using namespace CppScriptOld;
 
 
 class ValueHolderMock : public ValueHolder
 {
 public:
-    ValueHolderMock(const TypeId& id, const ValueHolder* ref = nullptr) : typeId(id), refValue(ref)
+    ValueHolderMock(const TypeIdOld& id, const ValueHolder* ref = nullptr) : typeId(id), refValue(ref)
     {}
 
     ~ValueHolderMock()
@@ -23,16 +23,16 @@ public:
             destructList->push_back(this);
     }
 
-   const TypeId& getTypeId() const override
+   const TypeIdOld& getTypeId() const override
     {
         return typeId;
     }
-    const TypeId& getSpecTypeId() const override
+    const TypeIdOld& getSpecTypeId() const override
     {
         return typeId;
     }
 
-    const TypeId& typeId;
+    const TypeIdOld& typeId;
     const ValueHolder* refValue { nullptr };
 
     static std::vector<const ValueHolder*>* destructList;
@@ -41,7 +41,7 @@ public:
 std::vector<const ValueHolder*>* ValueHolderMock::destructList{ nullptr };
 
 
-class TypeIdMock : public TypeId
+class TypeIdMock : public TypeIdOld
 {
 public:
     TypeIdMock(const TypeLayout& typeLayout, const bool isRef, const TypeIdMock* refType)

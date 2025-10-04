@@ -1,4 +1,5 @@
-from conans import ConanFile, CMake, tools
+from conan import ConanFile
+from conan.tools.cmake import cmake_layout
 import os.path
 
 class CppScriptConan(ConanFile):
@@ -30,7 +31,7 @@ class CppScriptConan(ConanFile):
         #self.requires("bgfx/7188")
 
     def build(self):
-        cmake = CMake(self)
+        cmake = cmake_layout(self)
         cmake.configure(source_folder="CppScript")
         cmake.build()
 

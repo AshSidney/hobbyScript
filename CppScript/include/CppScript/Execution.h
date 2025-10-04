@@ -11,7 +11,7 @@
 #include <cassert>
 
 
-namespace CppScript
+namespace CppScriptOld
 {
 
 enum class PlaceType
@@ -87,11 +87,11 @@ public:
 class CPPSCRIPT_API DataTypePlace
 {
 public:
-	DataTypePlace(const TypeId& typeId, const size_t offset, const ValueHolder* source)
+	DataTypePlace(const TypeIdOld& typeId, const size_t offset, const ValueHolder* source)
 		: typeId(&typeId), offset(offset), source(source)
 	{}
 
-	const TypeId& getTypeId() const
+	const TypeIdOld& getTypeId() const
 	{
 		return *typeId;
 	}
@@ -115,7 +115,7 @@ public:
 	}
 
 private:
-	const TypeId* typeId{ nullptr };
+	const TypeIdOld* typeId{ nullptr };
 	size_t offset{ 0 };
 	mutable const ValueHolder* source{ nullptr };
 };
@@ -139,17 +139,17 @@ struct CPPSCRIPT_API DataBlockDef
 	{
 	public:
 		DataBlockDef build();
-		size_t addPlace(const TypeId& typeId);
+		size_t addPlace(const TypeIdOld& typeId);
 		size_t addPlace(std::unique_ptr<ValueHolder> value);
 
 	private:
-		size_t addPlace(const TypeId& typeId, const ValueHolder* value);
+		size_t addPlace(const TypeIdOld& typeId, const ValueHolder* value);
 
 		void clear();
 		
 		struct TypePlaceOffset
 		{
-			const TypeId* typeId{ nullptr };
+			const TypeIdOld* typeId{ nullptr };
 			size_t offset{ 0 };
 			const ValueHolder* source{ nullptr };
 		};
