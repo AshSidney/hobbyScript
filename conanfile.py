@@ -1,5 +1,5 @@
 from conan import ConanFile
-from conan.tools.cmake import cmake_layout
+from conan.tools.cmake import cmake_layout, CMake
 import os.path
 
 class CppScriptConan(ConanFile):
@@ -13,7 +13,7 @@ class CppScriptConan(ConanFile):
     settings = "os", "compiler", "build_type", "arch"
     options = {"shared": [True, False], "fPIC": [True, False]}
     default_options = {"shared": False, "fPIC": True}
-    generators = "cmake"
+    generators = "CMakeDeps", "CMakeToolchain"
     exports_sources = "CppScript/include/*"
 
     def config_options(self):
@@ -21,18 +21,15 @@ class CppScriptConan(ConanFile):
             del self.options.fPIC
 
     def requirements(self):
-        self.requires("nlohmann_json/3.9.1")
-        self.requires("gtest/1.11.0")
-        #bgfxDir = 'build/bgfx'
-        #if not os.path.exists(bgfxDir):
-        #    git = tools.Git(folder=bgfxDir)
-        #    git.clone('https://github.com/firefalcom/conan-bgfx.git')
-        #self.run('conan install .', cwd=bgfxDir)
-        #self.requires("bgfx/7188")
+        self.requires("taocpp-pegtl/3.2.8")
+        self.requires("gtest/1.15.0")
+
+    def layout(self):
+        cmake_layout(self, src_folder="CppScript")
 
     def build(self):
-        cmake = cmake_layout(self)
-        cmake.configure(source_folder="CppScript")
+        cmake = CMake(self)
+        cmake.configure()
         cmake.build()
 
     def package(self):

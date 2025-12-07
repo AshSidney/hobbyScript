@@ -15,21 +15,39 @@ constexpr unsigned int lowBitsCount = segBitsCount - 1;
 constexpr SegType topBitMask = 1ull << lowBitsCount;
 constexpr SegType lowBitsMask = ~topBitMask;
 
-constexpr SegType getCarry(const SegType leftOp, const SegType rightOp, const SegType sum)
+constexpr inline SegType getCarry(const SegType leftOp, const SegType rightOp, const SegType sum)
 {
 	return ((leftOp & rightOp) | ((leftOp | rightOp) & ~sum)) >> lowBitsCount;
 }
 
-constexpr std::tuple<SegType, SegType> add(const SegType leftOp, const SegType rightOp, const SegType carry)
+constexpr inline std::tuple<SegType, SegType> add(const SegType leftOp, const SegType rightOp, const SegType carry)
 {
 	const SegType result = leftOp + rightOp + carry;
 	return { result, getCarry(leftOp, rightOp, result) };
 }
 
-constexpr std::tuple<SegType, SegType> subtract(const SegType leftOp, const SegType rightOp, const SegType carry)
+constexpr inline std::tuple<SegType, SegType> subtract(const SegType leftOp, const SegType rightOp, const SegType carry)
 {
 	const SegType result = leftOp - rightOp - carry;
 	return { result, getCarry(result, rightOp, leftOp) };
+}
+
+constexpr inline void accumAdd(SegType& acc, SegType& carry, const SegType first, const SegType second)
+{
+	SegType carry1{ 0 };
+	std::tie(acc, carry1) = add(acc, first, 0);
+	SegType carry2{ 0 };
+	std::tie(acc, carry2) = add(acc, second, 0);
+	carry += carry1 + carry2;
+}
+
+constexpr inline void accumSubtract(SegType& acc, SegType& carry, const SegType first, const SegType second)
+{
+	SegType carry1{ 0 };
+	std::tie(acc, carry1) = subtract(acc, first, 0);
+	SegType carry2{ 0 };
+	std::tie(acc, carry2) = subtract(acc, second, 0);
+	carry -= carry1 + carry2;
 }
 
 constexpr unsigned int halfBitsCount = segBitsCount / 2;
@@ -37,7 +55,7 @@ constexpr SegType halfSegValue = 1ull << halfBitsCount;
 constexpr SegType bottomHalfMask = halfSegValue - 1;
 constexpr SegType topHalfMask = ~bottomHalfMask;
 
-constexpr std::tuple<SegType, SegType> multiply(const SegType leftOp, const SegType rightOp)
+constexpr inline std::tuple<SegType, SegType> multiply(const SegType leftOp, const SegType rightOp)
 {
 	const SegType leftOpBottom = leftOp & bottomHalfMask;
 	const SegType leftOpTop = (leftOp & topHalfMask) >> halfBitsCount;
@@ -53,7 +71,33 @@ constexpr std::tuple<SegType, SegType> multiply(const SegType leftOp, const SegT
 	return { bottomMidSum, topMidSum };
 }
 
-constexpr std::tuple<SegType, SegType> divide(const SegType topLeft, const SegType midLeft, const SegType bottomLeft, const SegType rightOp, const unsigned int shift)
+constexpr SegType multCarry(const SegType value, const SegType carry)
+{
+	return (value & (((carry & topBitMask) | ((carry >> halfBitsCount) ^ 1)) - 1)) << halfBitsCount;
+}
+
+constexpr inline std::tuple<SegType, SegType> multiply2(const SegType leftOp, const SegType rightOp)
+{
+	const SegType leftOpBottom = leftOp & bottomHalfMask;
+	const SegType leftOpTop = (leftOp & topHalfMask) >> halfBitsCount;
+	const SegType rightOpBottom = rightOp & bottomHalfMask;
+	const SegType rightOpTop = (rightOp & topHalfMask) >> halfBitsCount;
+	const SegType bottomResult = leftOpBottom * rightOpBottom;
+	const SegType topResult = leftOpTop * rightOpTop;
+	const SegType leftOpMid = leftOpBottom +leftOpTop;
+	const SegType rightOpMid = rightOpBottom + rightOpTop;
+	SegType midResult = (leftOpMid & bottomHalfMask) * (rightOpMid & bottomHalfMask);
+	SegType midCarry = (leftOpMid & rightOpMid) >> halfBitsCount;
+	accumAdd(midResult, midCarry, multCarry(leftOpMid, rightOpMid), multCarry(rightOpMid, leftOpMid));
+	accumSubtract(midResult, midCarry, bottomResult, topResult);
+	const auto [bottomMidSum, bottomMidCarry] = add(bottomResult, (midResult & bottomHalfMask) << halfBitsCount, 0);
+	const auto [topMidSum, topMidCarry] = add(topResult, (midResult & topHalfMask) >> halfBitsCount,
+		(midCarry << halfBitsCount) + bottomMidCarry);
+	assert(topMidCarry == 0);
+	return { bottomMidSum, topMidSum };
+}
+
+constexpr inline std::tuple<SegType, SegType> divide(const SegType topLeft, const SegType midLeft, const SegType bottomLeft, const SegType rightOp, const unsigned int shift)
 {
 	const auto invShift = segBitsCount - shift;
 	SegType remainder = topLeft << shift | midLeft >> invShift;
@@ -67,12 +111,12 @@ constexpr std::tuple<SegType, SegType> divide(const SegType topLeft, const SegTy
 	return { stdResult, topResult + carry};
 }
 
-constexpr bool areUpperBitsZero(const SegType value, const unsigned int bitPosition)
+constexpr inline bool areUpperBitsZero(const SegType value, const unsigned int bitPosition)
 {
 	return (value & ~((1ull << bitPosition) - 1)) == 0;
 }
 
-constexpr unsigned int getTopBit(const SegType value)
+constexpr inline unsigned int getTopBit(const SegType value)
 {
 	unsigned int currBit = halfBitsCount;
 	for (unsigned int bitStep = currBit >> 1; bitStep > 0; bitStep >>= 1)

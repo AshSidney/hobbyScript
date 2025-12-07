@@ -1,4 +1,5 @@
 import subprocess
+import sys
 import random
 
 def getRslts(count, indexed, filters):
@@ -8,7 +9,7 @@ def getRslts(count, indexed, filters):
         random.shuffle(filters)
         for filter in filters:
             print(filter)
-            rslt = subprocess.run('build/bin/CppScriptTest.exe --gtest_filter=' + filter,
+            rslt = subprocess.run('build/RelWithDebInfo/CppScriptTest.exe --gtest_filter=' + filter,
                 capture_output=True)
             for ln in rslt.stdout.splitlines():
                 parts = ln.decode().split()
@@ -35,6 +36,9 @@ def getRslts(count, indexed, filters):
         else:
             print(key, sorted(data))
 
-getRslts(8, True, ['*FibonacciInstances*Variant*', '*FibonacciInstances*Custom*', '*FibonacciInstances*Virtual*', '*FibonacciInstances*Lambda*',
-             '*FibonacciInstances*OldNoCache*', '*FibonacciInstances*OldCache*'])
-#getRslts(64, False, ['CoreModulePerformanceFixture.Fibonacci*', 'CoreOperationPerformanceStdIntFixture*'])
+if len(sys.argv) > 1:
+    if sys.argv[1] == 'int':
+        getRslts(8, True, ['*FibonacciInstances*Variant*', '*FibonacciInstances*Custom*', '*FibonacciInstances*Virtual*', '*FibonacciInstances*Lambda*',
+            '*FibonacciInstances*OldNoCache*', '*FibonacciInstances*OldCache*'])
+    elif sys.argv[1] == 'stdint':
+        getRslts(64, False, ['CoreModulePerformanceFixture.Fibonacci*', 'CoreOperationPerformanceStdIntFixture*'])

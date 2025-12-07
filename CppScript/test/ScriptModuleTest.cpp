@@ -5,6 +5,7 @@
 #include <CppScript/IntValue.h>
 #include "TestUtils.h"
 
+using namespace CppScript;
 using namespace CppScriptOld;
 
 class ScriptModuleFixture : public testing::Test

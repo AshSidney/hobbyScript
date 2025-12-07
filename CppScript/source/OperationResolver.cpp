@@ -5,57 +5,143 @@ namespace CppScript
 
 bool OperationDescription::validate(const OperationBuildContext& context) const
 {
-    const bool noCondJump = context.jumps.size() <= 1;
-    const std::size_t returnArg = returnType != nullptr && noCondJump ? 1 : 0;
-    return (noCondJump || context.jumps.size() == jumpCount) && argumentTypes.size() + returnArg == context.argumentPlaces.size();
+    const bool uncondJump = context.jumps.size() == 1;
+    const std::size_t returnArg = returnType != nullptr && uncondJump ? 1 : 0;
+    return (uncondJump || context.jumps.size() == jumpCount)
+        && context.argumentPlaces.size() >= argumentTypes.size()
+        && context.argumentPlaces.size() <= argumentTypes.size() + returnArg;
 }
 
 
-OperationResolver::OperationResolver(std::vector<OperationDescription> descrs)
+void OperationResolver::addDescriptions(std::initializer_list<OperationDescription> descrs)
 {
-    for (std::size_t index = 0; index < descrs.size(); ++index)
-        descriptions.push_back({ index, std::move(descrs[index]) });
-}
-
-OperationResolver::Result OperationResolver::resolve(const Id& id, const std::vector<const TypeId*>& argTypes) const
-{
-    auto found = std::find_if(descriptions.begin(), descriptions.end(), [&id, &argTypes](const Description& descr)
-    {
-        return id == descr.opDescription.id && std::equal(argTypes.begin(), argTypes.end(),
-            descr.opDescription.argumentTypes.begin(), descr.opDescription.argumentTypes.end(),
-            [](const TypeId* reqType, const TypeId* opArgType)
-            {
-                assert(reqType != nullptr);
-                return opArgType->accepts(*reqType);
-            });
-    });
-    if (found != descriptions.end())
-        return Resolved{ found->index, found->opDescription };
-    return Result{};
-}
-
-void OperationResolver::setModule(std::string_view modId)
-{
-    
-}
-
-void OperationResolver::addDescription(OperationDescription descr)
-{
-    descriptions.push_back({ descriptions.size(), std::move(descr) });
-}
-
-std::size_t OperationResolver::getCount() const
-{
-    return descriptions.size();
+    descriptions.insert(descriptions.end(), descrs);
 }
 
 bool OperationResolver::validate(const OperationBuildContext& context) const
 {
-    const auto foundDescr = std::find_if(descriptions.begin(), descriptions.end(), [&context](const Description& descr)
+    return context.index < descriptions.size() && descriptions[context.index].validate(context);
+}
+
+OperationResolver::Result OperationResolver::resolve(OperationBlockResolutionData&& block, TypeFrames& frames) const
+{
+    OperationBlockBuildContext buildContext;
+    Error error{ block.blockId };
+    std::vector<const TypeId*> argTypes;
+    if (!block.constantValues.empty())
+    {
+        buildContext.constantValues = std::move(block.constantValues);
+        auto& constFrame = getFrame(frames, ValuePlace::Type::Constants);
+        constFrame.clear();
+        constFrame.reserve(buildContext.constantValues.size());
+        for (auto& constValue : buildContext.constantValues)
+            constFrame.push_back(&constValue->getTypeId());
+    }
+    for (auto& operation : block.operations)
+    {
+        error.location = operation.location;
+        error.alternatives.clear();
+        argTypes.clear();
+        for (const ValuePlace& place : operation.argumentPlaces)
         {
-            return descr.index == context.index;
-        });
-    return foundDescr != descriptions.end() && foundDescr->opDescription.validate(context);
+            auto& frame = getFrame(frames, place.placeType);
+            if (place.index < frame.size() && frame[place.index] != nullptr)
+                argTypes.push_back(frame[place.index]);
+            else
+            {
+                error.message = "unknown type of argument";
+                return error;
+            }
+        }
+        for (std::size_t index = 0; index < getDescriptions().size(); ++index)
+        {
+            const auto& descr = getDescriptions()[index];
+            if (operation.operationId == descr.id)
+            {
+                if (std::equal(argTypes.begin(), argTypes.end(),
+                    descr.argumentTypes.begin(), descr.argumentTypes.end(),
+                    [](const TypeId* reqType, const TypeId* opArgType)
+                    {
+                        return opArgType->accepts(*reqType);
+                    }) && !(descr.returnType == nullptr && operation.returnPlace))
+                {
+                    OperationBuildContext opContext{ index, std::move(operation.argumentPlaces),
+                        std::move(operation.jumps), operation.location };
+                    if (operation.returnPlace)
+                    {
+                        opContext.argumentPlaces.push_back(*operation.returnPlace);
+                        auto& frame = getFrame(frames, operation.returnPlace->placeType);
+                        if (operation.returnPlace->index >= frame.size())
+                            frame.resize(operation.returnPlace->index + 1, nullptr);
+                        frame[operation.returnPlace->index] = descr.returnType;
+                    }
+                    buildContext.operations.push_back(std::move(opContext));
+                }
+                else
+                {
+                    error.alternatives.push_back(&descr);
+                }
+            }
+        }
+    }
+    buildContext.valueTypes = getFrame(frames, ValuePlace::Type::Local);
+    return buildContext;
+}
+
+OperationResolver::ResolutionContext OperationResolver::createContextWithConstants(OperationBlockResolutionData& block, TypeFrames& frames) const
+{
+    return ResolutionContext{frames};
+}
+
+bool OperationResolver::resolveOperation(OperationResolutionData&& operation, ResolutionContext& context) const
+{
+    auto& argTypes = context.argumentTypes;
+    argTypes.clear();
+    context.errorData.location = operation.location;
+    context.errorData.alternatives.clear();
+    for (const ValuePlace& place : operation.argumentPlaces)
+    {
+        auto& frame = getFrame(context.frames, place.placeType);
+        if (place.index < frame.size() && frame[place.index] != nullptr)
+            argTypes.push_back(frame[place.index]);
+        else
+        {
+            context.errorData.message = "unknown type of argument";
+            return false;
+        }
+    }
+    for (std::size_t index = 0; index < getDescriptions().size(); ++index)
+    {
+        const auto& descr = getDescriptions()[index];
+        if (operation.operationId == descr.id)
+        {
+            if (std::equal(argTypes.begin(), argTypes.end(),
+                descr.argumentTypes.begin(), descr.argumentTypes.end(),
+                [](const TypeId* reqType, const TypeId* opArgType)
+                {
+                    return opArgType->accepts(*reqType);
+                }) && !(descr.returnType == nullptr && operation.returnPlace))
+            {
+                OperationBuildContext opContext{ index, std::move(operation.argumentPlaces),
+                    std::move(operation.jumps), operation.location };
+                if (operation.returnPlace)
+                {
+                    opContext.argumentPlaces.push_back(*operation.returnPlace);
+                    auto& frame = getFrame(context.frames, operation.returnPlace->placeType);
+                    if (operation.returnPlace->index >= frame.size())
+                        frame.resize(operation.returnPlace->index + 1, nullptr);
+                    frame[operation.returnPlace->index] = descr.returnType;
+                }
+                context.blockContext.operations.push_back(std::move(opContext));
+                return true;
+            }
+            else
+            {
+                context.errorData.alternatives.push_back(&descr);
+            }
+        }
+    }
+    return false;
 }
 
 }

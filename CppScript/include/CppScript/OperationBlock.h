@@ -36,29 +36,61 @@ class CPPSCRIPT_API ValuesFrame
 {
 public:
     ValuesFrame() = default;
-    ~ValuesFrame() noexcept;
-    ValuesFrame(ValuesFrame&&) noexcept;
+    ~ValuesFrame() noexcept = default;
+    ValuesFrame(ValuesFrame&& source) noexcept;
     ValuesFrame(const ValuesFrame&) = delete;
     ValuesFrame& operator=(ValuesFrame&&) = delete;
     ValuesFrame& operator=(const ValuesFrame&) = delete;
 
-	std::byte* initialize(std::byte* buffer, const OperationBlockLayout& layout);
+	std::span<ValueBase*> getValues()
+	{
+		return values;
+	}
 	
     ValueBase& get(const std::size_t index)
 	{
 		assert(index < values.size());
 		return *values[index];
 	}
+
+protected:
+	std::span<ValueBase*> values;
+};
+
+class CPPSCRIPT_API VariablesFrame : public ValuesFrame
+{
+public:
+    VariablesFrame() = default;
+    ~VariablesFrame() noexcept;
+	VariablesFrame(VariablesFrame&& source) noexcept;
+
+	std::byte* initialize(std::byte* buffer, const OperationBlockLayout& layout);
 		
 private:
-	std::span<ValueBase*> values;
 	std::span<ValueBase*> destructValues;
+};
+
+class CPPSCRIPT_API ConstantsFrame : public ValuesFrame
+{
+public:
+    ConstantsFrame(std::vector<std::unique_ptr<ValueBase>> constVals);
+    ~ConstantsFrame() noexcept;
+	ConstantsFrame(ConstantsFrame&& source) noexcept;
+
+private:
+	std::vector<ValueBase*> constValues;
+};
+
+class CPPSCRIPT_API ArgumentsFrame : public ValuesFrame
+{
+public:
+    ArgumentsFrame();
 };
 
 
 struct OperationBlockContext
 {
-	std::array<ValuesFrame*, EnumTraits<ValuePlace::Type>::index(ValuePlace::Type::Void)> frames;
+	std::array<std::span<ValueBase*>, framesCount> frames;
 };
 
 
@@ -84,9 +116,6 @@ private:
 };
 
 
-template <typename O>
-class OperationBlock;
-
 template <typename O, typename A>
 class OperationFrame
 {
@@ -97,7 +126,7 @@ public:
 		buffer(Allocator<A>::allocate(layout.fullLayout))
 	{
 		std::byte* argsPtr = values.initialize(buffer.get(), layout);
-		context.frames[EnumTraits<ValuePlace::Type>::index(ValuePlace::Type::Local)] = &values;
+		getFrame(context.frames, ValuePlace::Type::Local) = values.getValues();
 		[[maybe_unused]] std::byte* endPtr = arguments.initialize(argsPtr, layout, context);
 		assert(endPtr <= buffer.get() + layout.fullLayout.size);
 	}
@@ -130,31 +159,45 @@ public:
 private:
 	std::span<O> operations;
 	Allocator<A>::MemoryPtr buffer;
-	ValuesFrame values;
+	VariablesFrame values;
 	OperationsArgumentsFrame arguments;
 	std::size_t currentOperation{ 0 };
 	OperationContext context;
 };
 
 
-template <typename O>
+template <typename OB>
 class OperationBlock
 {
 public:
-	OperationBlock(std::vector<const TypeId*> valTypes, std::vector<O> operations)
-		: operations(std::move(operations)),
-		layout(std::move(valTypes), getArgumentPlaces(this->operations))
-	{}
-
-	template <typename A = DefaultAllocator>
-	OperationFrame<O, A> createFrame(OperationBlockContext& context)
+	OperationBlock(const OB& builder, OperationBlockBuildContext source)
+		: operations(builder.build(source.operations)),
+		layout(std::move(source.valueTypes), getArgumentPlaces(operations))
 	{
-		return OperationFrame<O, A>({ operations.begin(), operations.end() }, layout, context);
+		if (!source.constantValues.empty())
+			constantsFrame.emplace(std::move(source.constantValues));
+	}
+
+	OperationBlockContext createContext()
+	{
+		OperationBlockContext context;
+		if (constantsFrame)
+			getFrame(context.frames, ValuePlace::Type::Constants) = constantsFrame->getValues();
+		return context;
+	}
+
+	using OperationType = typename OB::OperationType;
+	
+	template <typename A = DefaultAllocator>
+	OperationFrame<OperationType, A> createFrame(OperationBlockContext& context)
+	{
+		return OperationFrame<OperationType, A>({ operations.begin(), operations.end() }, layout, context);
 	}
 
 private:
-	std::vector<O> operations;
+	std::vector<OperationType> operations;
 	OperationBlockLayout layout;
+	std::optional<ConstantsFrame> constantsFrame;
 };
 
 }

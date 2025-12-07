@@ -3,6 +3,7 @@
 #include <CppScript/OperationBlock.h>
 #include <CppScript/CoreOperations.h>
 #include "AllocatorMock.h"
+#include "OperationResolverProxy.h"
 #include "ValueMock.h"
 #include "TestUtils.h"
 
@@ -42,7 +43,7 @@ TEST(OperationBlockTest, OperationBlockLayoutCreate)
 		+ OperationBlockLayout::argumentPtrLayout * 3));
 }
 
-TEST(OperationBlockTest, ValuesFrameInitializeAndDestruct)
+TEST(OperationBlockTest, VariablesFrameInitializeAndDestruct)
 {
 	std::byte buffer[1024];
 
@@ -55,11 +56,12 @@ TEST(OperationBlockTest, ValuesFrameInitializeAndDestruct)
 	auto destructList = TestStructDestruct::initDestructList();
 	TestStructDestruct* structPtr{ nullptr };
 	{
-		ValuesFrame frame;
+		VariablesFrame frame;
 		auto* memPtr = frame.initialize(buffer, layout);
 		const auto fullLayout = Alignment::alignUp(layout.valuesLayout, OperationBlockLayout::valuePtrLayout.alignment)
 			+ (4 + 3) * OperationBlockLayout::valuePtrLayout;
 		EXPECT_EQ(memPtr, buffer + fullLayout.size);
+		EXPECT_EQ(frame.getValues().size(), 4);
 		ValueBase& intVal = frame.get(0);
 		ValueBase& doubleVal = frame.get(1);
 		ValueBase& structVal = frame.get(2);
@@ -90,21 +92,69 @@ TEST(OperationBlockTest, ValuesFrameInitializeAndDestruct)
 		static_cast<Value<double>&>(doubleVal).set(-12.5);
 		EXPECT_EQ(static_cast<Value<int>&>(intVal).get(), 741);
 		EXPECT_EQ(static_cast<Value<double>&>(doubleVal).get(), -12.5);
+
+		VariablesFrame movedFrame{ std::move(frame) };
+		EXPECT_EQ(movedFrame.getValues().size(), 4);
+		EXPECT_EQ(frame.getValues().size(), 0);
 	}
 	EXPECT_EQ(destructList->size(), 2);
 	EXPECT_EQ(structPtr, destructList->back());
 	EXPECT_EQ(refDestructList->size(), 0);
 }
 
+TEST(OperationBlockTest, ConstantsFrameInitializeAndDestruct)
+{
+	auto destructList = TestStructDestruct::initDestructList();
+	const TestStructDestruct* structPtr{ nullptr };
+	{
+		EXPECT_EQ(destructList->size(), 0);
+		ConstantsFrame frame{ [&]()
+			{
+				std::vector<std::unique_ptr<ValueBase>> constVals;
+				auto intVal = std::make_unique<Value<int>>();
+				intVal->set(789);
+				constVals.push_back(std::move(intVal));
+				auto floatVal =  std::make_unique<Value<float>>();
+				floatVal->set(6.28F);
+				constVals.push_back(std::move(floatVal));
+				auto structVal = std::make_unique<Value<TestStructDestruct>>();
+				structVal->set({ 42, true });
+				structPtr = &structVal->get();
+				constVals.push_back(std::move(structVal));
+				return constVals;
+			}() };
+		EXPECT_EQ(destructList->size(), 1);
+
+		EXPECT_EQ(frame.getValues().size(), 3);
+		ValueBase& intVal = frame.get(0);
+		ValueBase& floatVal = frame.get(1);
+		ValueBase& structVal = frame.get(2);
+		EXPECT_EQ(intVal.getTypeId(), Value<int>::typeId);
+		EXPECT_EQ(static_cast<Value<int>&>(intVal).get(), 789);
+		EXPECT_EQ(floatVal.getTypeId(), Value<float>::typeId);
+		EXPECT_EQ(static_cast<Value<float>&>(floatVal).get(), 6.28F);
+		EXPECT_EQ(structVal.getTypeId(), Value<TestStructDestruct>::typeId);
+		EXPECT_EQ(&static_cast<Value<TestStructDestruct>&>(structVal).get(), structPtr);
+		EXPECT_EQ(static_cast<Value<TestStructDestruct>&>(structVal).get().val, 42);
+		EXPECT_TRUE(static_cast<Value<TestStructDestruct>&>(structVal).get().flag);
+
+		ConstantsFrame movedFrame{ std::move(frame) };
+		EXPECT_EQ(movedFrame.getValues().size(), 3);
+		EXPECT_EQ(frame.getValues().size(), 0);
+	}
+	EXPECT_EQ(destructList->size(), 2);
+	EXPECT_EQ(structPtr, destructList->back());
+}
+
 TEST(OperationBlockTest, OperationsArgumentsFrameInitialize)
 {
 	const std::vector<ValuePlace> op0Args{ {ValuePlace::Type::Local, 0} };
 	const std::vector<ValuePlace> op1Args{ {ValuePlace::Type::Module, 1}, {ValuePlace::Type::Caller, 0} };
-	const std::vector<ValuePlace> op2Args{ {ValuePlace::Type::Module, 0}, { ValuePlace::Type::Void } };
+	const std::vector<ValuePlace> op2Args{ {ValuePlace::Type::Module, 0}, { ValuePlace::Type::Local, 0} };
 	const OperationBlockLayout localLayout{ { &Value<float>::typeId }, {&op0Args, &op1Args, &op2Args } };
 	
 	std::byte buffer[1024];
-	ValuesFrame moduleFrame, callerFrame, localFrame;
+	VariablesFrame moduleFrame, callerFrame, localFrame;
 	std::byte* nextBuff = moduleFrame.initialize(buffer, OperationBlockLayout({ &Value<int>::typeId, &Value<TestStruct>::typeId }, {}));
 	auto& intVal = static_cast<Value<int>&>(moduleFrame.get(0));
 	intVal.set(963);
@@ -116,7 +166,7 @@ TEST(OperationBlockTest, OperationsArgumentsFrameInitialize)
 	nextBuff = callerFrame.initialize(nextBuff, OperationBlockLayout({ &Value<bool>::typeId }, {}));
 	auto& boolVal = static_cast<Value<bool>&>(callerFrame.get(0));
 	boolVal.set(true);
-	OperationBlockContext opBlockContext{{&localFrame,  &callerFrame, &moduleFrame }};
+	OperationBlockContext opBlockContext{{localFrame.getValues(),  callerFrame.getValues(), moduleFrame.getValues() }};
 	
 	OperationsArgumentsFrame argFrame;
 	std::byte* buffLeft = argFrame.initialize(nextBuff, localLayout, opBlockContext);
@@ -129,35 +179,27 @@ TEST(OperationBlockTest, OperationsArgumentsFrameInitialize)
 	EXPECT_EQ(op1ArgVals[1], &boolVal);
 	Arguments op2ArgVals = argFrame.get(2);
 	EXPECT_EQ(op2ArgVals[0], &intVal);
-	EXPECT_EQ(op2ArgVals[1], nullptr);
+	EXPECT_EQ(op2ArgVals[1], &floatVal);
 }
 	
 TEST(OperationBlockTest, OperationFrameCreateExecute)
 {
-	const TypeId& intTypeId = Value<StdInt>::typeId;
 	CoreOperationBuilder builder;
-	OperationBlock<CoreOperationBuilder::OperationType> opBlock{ {&intTypeId, &intTypeId, &intTypeId},
-		{ [&builder, &intTypeId]()
-		{
-			const OperationResolver& resolver = builder.getResolver();
-			std::vector<CoreOperationBuilder::OperationType> ops;
-			ops.push_back(builder.build({getOpRes(resolver, {"+="}, {&intTypeId, &intTypeId}).index, {{ValuePlace::Type::Local, 0}, {ValuePlace::Type::Local, 1}}}));
-			ops.push_back(builder.build({getOpRes(resolver, {"<=>"}, {&intTypeId, &intTypeId}).index, {{ValuePlace::Type::Local, 0}, {ValuePlace::Type::Local, 2}}, {-1, 1, 1}}));
-			return ops;
-		}() }};
+	TypeFrames frames;
+	OperationBlockResolutionData opData{{}, makeConstants(StdInt(0), StdInt(1), StdInt(10)),
+		{{{"="}, ValuePlace{ValuePlace::Type::Local, 0}, {{ValuePlace::Type::Constants, 0}}},
+		{{"+="}, {}, {{ValuePlace::Type::Local, 0}, {ValuePlace::Type::Constants, 1}}},
+		{{"<=>"}, {}, {{ValuePlace::Type::Local, 0}, {ValuePlace::Type::Constants, 2}}, {-1, 1, 1}}}};
+	OperationBlock<CoreOperationBuilder> opBlock{ builder, std::get<0>(builder.getResolver().resolve(std::move(opData), frames))};
+	OperationBlockContext context = opBlock.createContext();
+	EXPECT_EQ(getFrame(context.frames, ValuePlace::Type::Constants).size(), 3);
+
 	std::byte buffer[1024];
 	AllocMock allocMock;
-	TypeId::Layout fullLayout = intTypeId.layout * 3 + OperationBlockLayout::valuePtrLayout * ((3 + 3) + (2 + 2))
-		+ OperationBlockLayout::argumentPtrLayout * 2;
+	TypeId::Layout fullLayout = Value<StdInt>::typeId.layout + OperationBlockLayout::valuePtrLayout * ((1 + 1) + 3 * 2)
+		+ OperationBlockLayout::argumentPtrLayout * 3;
 	allocMock.expectAllocFree(fullLayout, buffer, false);
-	OperationBlockContext context;
 	auto opFrame{ opBlock.createFrame<AllocMock>(context) };
-	auto& values = opFrame.getValues();
-	static_cast<Value<StdInt>&>(values.get(0)).set(0);
-	static_cast<Value<StdInt>&>(values.get(1)).set(1);
-	static_cast<Value<StdInt>&>(values.get(2)).set(10);
 	opFrame.execute();
-	EXPECT_EQ(static_cast<Value<StdInt>&>(values.get(0)).get(), 10);
-	EXPECT_EQ(static_cast<Value<StdInt>&>(values.get(1)).get(), 1);
-	EXPECT_EQ(static_cast<Value<StdInt>&>(values.get(2)).get(), 10);
+	EXPECT_EQ(static_cast<Value<StdInt>&>(opFrame.getValues().get(0)).get(), 10);
 }

@@ -14,8 +14,8 @@ namespace CppScript
 
 struct ValuePlace
 {
-	enum class Type{ Local, Caller, Module, Void };
-	Type placeType{ Type::Void };
+	enum class Type{ Local, Caller, Module, Constants };
+	Type placeType{ Type::Local };
 	std::size_t index{ 0 };
 };
 
@@ -29,15 +29,60 @@ constexpr auto enumItems<ValuePlace::Type>()
 		TypeItem<ValuePlace::Type::Local>{"Local"},
 		TypeItem<ValuePlace::Type::Caller>{"Caller"},
 		TypeItem<ValuePlace::Type::Module>{"Module"},
-		TypeItem<ValuePlace::Type::Void>{"Void"});
+		TypeItem<ValuePlace::Type::Constants>{"Constants"});
 }
 
-struct OperationBuildContext
+
+constexpr std::size_t framesCount{ EnumTraits<ValuePlace::Type>::size };
+
+
+template <typename T>
+constexpr T& getFrame(std::array<T, framesCount>& frames, const ValuePlace::Type placeType)
+{
+	return frames[EnumTraits<ValuePlace::Type>::index(placeType)];
+}
+
+
+struct OperationLocation
+{
+    short int line{ 0 };
+    short int column{ 0 };
+};
+
+struct OperationBuildContext 
 {
 	std::size_t index{ std::numeric_limits<std::size_t>::max() };
 	std::vector<ValuePlace> argumentPlaces;
-	std::vector<int> jumps;
+	std::vector<int> jumps{ 1 };
+    OperationLocation location;
 };
+
+struct OperationBlockBuildContext
+{
+	std::vector<const TypeId*> valueTypes;
+	std::vector<std::unique_ptr<ValueBase>> constantValues;
+	std::vector<OperationBuildContext> operations;
+};
+
+
+struct OperationResolutionData
+{
+    Id operationId;
+    std::optional<ValuePlace> returnPlace;
+	std::vector<ValuePlace> argumentPlaces;
+	std::vector<int> jumps{ 1 };
+    OperationLocation location;
+};
+
+struct OperationBlockResolutionData
+{
+	Id blockId;
+    std::vector<std::unique_ptr<ValueBase>> constantValues;
+    std::vector<OperationResolutionData> operations;
+};
+
+using TypeFrames = std::array<std::vector<const TypeId*>, framesCount>;
+
 
 struct OperationDescription
 {
@@ -53,40 +98,42 @@ struct OperationDescription
 class CPPSCRIPT_API OperationResolver
 {
 public:
-    explicit OperationResolver(std::vector<OperationDescription> descrs);
-
-    struct Resolved
+    struct Error
     {
-        std::size_t index;
-        const OperationDescription& description;
-    };
-
-    struct Alternative
-    {
+        Id codeId;
+        OperationLocation location;
         std::string message;
-        const OperationDescription& description;
+        std::vector<const OperationDescription*> alternatives;
     };
 
-    using Result = std::variant<std::vector<Alternative>, Resolved>;
+    using Result = std::variant<OperationBlockBuildContext, Error>;
 
-    Result resolve(const Id& id, const std::vector<const TypeId*>& argTypes) const;
+    Result resolve(OperationBlockResolutionData&& block, TypeFrames& frames) const;
     
-    void setModule(std::string_view modId);
+    void addDescriptions(std::initializer_list<OperationDescription> descrs);
     
-    void addDescription(OperationDescription descr);
+    const std::vector<OperationDescription>& getDescriptions() const
+    {
+        return descriptions;
+    }
 
-    std::size_t getCount() const;
     bool validate(const OperationBuildContext& context) const;
 
-private:
-    struct Description
+protected:
+    struct ResolutionContext
     {
-    	std::size_t index; 
-        OperationDescription opDescription;
+        TypeFrames& frames;
+        OperationBlockBuildContext blockContext;
+        Error errorData;
+        std::vector<const TypeId*> argumentTypes;
     };
-    
-    std::vector<Description> descriptions;
-    std::string_view currentModuleId;
+
+    ResolutionContext createContextWithConstants(OperationBlockResolutionData& block, TypeFrames& frames) const;
+
+    bool resolveOperation(OperationResolutionData&& operation, ResolutionContext& context) const;
+
+private:
+    std::vector<OperationDescription> descriptions;
 };
 
 }

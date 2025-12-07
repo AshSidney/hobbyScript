@@ -35,7 +35,7 @@ public:
     TypeId& operator=(TypeId&&) = delete;
 
     virtual ValueBase* create(void* ptr) const = 0;
-
+	
     void updateName(Id name) const
     {
         typeName = name;
@@ -69,19 +69,46 @@ public:
     mutable Id typeName;
     Layout layout;
     const TypeId* commonTypeId{ nullptr };
-    const TypeId* commonPtrId{ nullptr };
     bool isFinalType{ false };
     bool isConst{ true };
     std::span<std::string_view> enumItems;
 
+    const TypeId* getCommonPtrId() const
+    {
+        return isReference() ? commonTypeId : commonTypeId->commonTypeId;
+    }
+
     bool isReference() const
     {
-        return commonTypeId == nullptr;
+        return commonTypeId->commonTypeId == nullptr;
+    }
+
+    bool matchesConst(const TypeId& param) const
+    {
+        return !isReference() || isConst || !param.isConst;
+    }
+
+    bool matchesCommonPtr(const TypeId& param) const
+    {
+        return getCommonPtrId() == param.getCommonPtrId();
+    }
+
+    enum class ArgumentMatch { Exact, Cast, Convert, ConstMismatch, Unrelated };
+
+    ArgumentMatch matchesType(const TypeId& param) const
+    {
+        if (!matchesConst(param))
+            return ArgumentMatch::ConstMismatch;
+        if (this == &param)
+            return ArgumentMatch::Exact;
+        if (matchesCommonPtr(param))
+            return ArgumentMatch::Cast;
+        return ArgumentMatch::Unrelated;
     }
 
     bool accepts(const TypeId& param) const
     {
-        return commonPtrId == param.commonPtrId && (!isReference() || isConst || !param.isConst);
+        return matchesCommonPtr(param) && (!isReference() || isConst || !param.isConst);
     }
 
 protected:
@@ -334,17 +361,9 @@ public:
     
     constexpr ValueTypeId(const TypeId& baseId, bool finalType)
     {
-        if (baseId.commonPtrId == nullptr)
-        {
-            commonPtrId = &baseId;
-        }
-        else
-        {
-            commonTypeId = &baseId;
-            commonPtrId = baseId.commonPtrId;
-        }
-        isConst = std::is_const_v<std::remove_pointer_t<std::remove_reference_t<T>>>;
+        commonTypeId = &baseId;
         isFinalType = finalType;
+        isConst = std::is_const_v<std::remove_pointer_t<std::remove_reference_t<T>>>;
         if (isFinalType)
         {
             layout = Layout::create<ValueType>();

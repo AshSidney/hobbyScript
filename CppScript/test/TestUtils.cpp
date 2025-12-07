@@ -6,13 +6,6 @@ using namespace CppScript;
 namespace CppScriptTest
 {
 
-OperationResolver::Resolved getOpRes(const OperationResolver& resolver, const Id& id, const std::vector<const TypeId*>& argTypes)
-{
-	const auto result = resolver.resolve(id, argTypes);
-    EXPECT_TRUE(std::holds_alternative<OperationResolver::Resolved>(result));
-	return std::get<OperationResolver::Resolved>(result);
-}
-
 }
 
 

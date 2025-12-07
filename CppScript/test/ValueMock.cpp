@@ -12,6 +12,8 @@ TypeIdMock::TypeIdMock(const CppScript::TypeId::Layout& layout, const bool isVal
     this->layout = layout;
     if (isVal)
         commonTypeId = &CppScript::ValueCommon<bool>::typeId;
+    else
+        commonTypeId = &CppScript::ValueCommonPtr<bool>::typeId;
 }
 
 TypeIdMock::~TypeIdMock() noexcept = default;

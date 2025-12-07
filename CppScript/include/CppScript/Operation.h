@@ -54,15 +54,16 @@ protected:
 };
 
 
-template <typename ... O>
+template <typename O>
 class Operation
 {
 public:
-	using OperationVariant = std::variant<CustomOperation, O...>;
+	using OperationVariant = O;
 
-	Operation(OperationVariant op, OperationBuildContext context)
+	Operation(OperationVariant&& op, OperationBuildContext&& context)
 		: operation(std::move(op)),
-		argumentPlaces(std::move(context.argumentPlaces))
+		argumentPlaces(std::move(context.argumentPlaces)),
+		location(std::move(context.location))
 	{}
 
 	void execute(OperationContext& context) const
@@ -75,10 +76,15 @@ public:
 		return argumentPlaces;
 	}
 
+	const OperationLocation& getLocation() const
+	{
+		return location;
+	}
+
 private:
 	OperationVariant operation;
-	
 	std::vector<ValuePlace> argumentPlaces;
+	OperationLocation location;
 };
 
 
@@ -96,42 +102,164 @@ std::vector<const std::vector<ValuePlace>*> getArgumentPlaces(const std::vector<
 }
 
 
+template <typename O>
+class ExecutorCommon
+{
+public:
+	explicit ExecutorCommon(OperationBuildContext& context)
+	{
+		operation.initialize(context);
+		assert(context.jumps.size() == 1);
+		nextStep = context.jumps.front();
+	}
+	
+protected:
+	O operation;
+	int nextStep{ 1 };
+};
+
+template <typename O>
+class ExecutorVoid : public ExecutorCommon<O>
+{
+public:
+	using Base = ExecutorCommon<O>;
+
+	explicit ExecutorVoid(OperationBuildContext& context) : Base(context)
+	{}
+	
+	void execute(OperationContext& context) const
+	{
+		Base::operation.executeVoid(context);
+		context.nextStep = Base::nextStep;
+	}
+};
+
+template <typename O>
+class ExecutorRet : public ExecutorCommon<O>
+{
+public:
+	using Base = ExecutorCommon<O>;
+
+	explicit ExecutorRet(OperationBuildContext& context) : Base(context)
+	{}
+	
+	void execute(OperationContext& context) const
+	{
+		Base::operation.executeRet(context);
+		context.nextStep = Base::nextStep;
+	}
+};
+
+template <typename O>
+class ExecutorJump
+{
+public:
+	explicit ExecutorJump(OperationBuildContext& context)
+	{
+		operation.initialize(context);
+		assert(context.jumps.size() == O::jumpSize);
+		std::copy(context.jumps.begin(), context.jumps.end(), jumpTable.begin());
+	}
+	
+	void execute(OperationContext& context) const
+	{
+		context.nextStep = jumpTable[operation.executeJump(context)];
+	}
+	
+private:
+	O operation;
+	std::array<int, O::jumpSize> jumpTable;
+};
+
+
+template <typename O>
+using Executors = std::conditional_t<O::voidReturn,
+		std::variant<ExecutorVoid<O>>,
+	std::conditional_t<O::jumpSize == 1,
+		std::variant<ExecutorVoid<O>, ExecutorRet<O>>,
+		std::variant<ExecutorVoid<O>, ExecutorRet<O>, ExecutorJump<O>>>>;
+
+
+template <typename OV, typename O>
+OV createOperationExecutor(OperationBuildContext& context)
+{
+	if constexpr (O::jumpSize > 1)
+	{
+		if (context.jumps.size() > 1)
+			return ExecutorJump<O>{ context };
+	}
+	if constexpr (!O::voidReturn)
+	{
+		if (context.argumentPlaces.size() > O::argumentCount)
+			return ExecutorRet<O>{ context };
+	}
+	return ExecutorVoid<O>{ context };
+}
+
+
+template <typename ... E>
+struct OperationExecutorsImpl;
+
+template <typename ... O>
+using OperationExecutors = typename OperationExecutorsImpl<std::variant<CustomOperation>, O...>::Type;
+
+template <typename ... E>
+struct OperationExecutorsImpl<std::variant<E...>>
+{
+	using Type = std::variant<E...>;
+};
+
+template <typename ... E, typename ... Es>
+struct OperationExecutorsImpl<std::variant<E...>, std::variant<Es...>>
+{
+	using Type = std::variant<E..., Es...>;
+};
+
+template <typename ... E, typename O, typename ... Os>
+struct OperationExecutorsImpl<std::variant<E...>, O, Os...>
+{
+	using Type = typename OperationExecutorsImpl<typename OperationExecutorsImpl<std::variant<E...>, Executors<O>>::Type, Os...>::Type;
+};
+
+
 template <typename ... O>
 class OperationBuilder
 {
 public:
-	using OperationType = Operation<O...>;
+	using OperationType = Operation<OperationExecutors<O...>>;
 
-	OperationType build(OperationBuildContext context) const
+	OperationBuilder()
+	{
+		resolver.addDescriptions({ O::getDescription() ... });
+	}
+
+	OperationType build(OperationBuildContext&& context) const
 	{
 		assert(context.index < builders.size());
 		assert(resolver.validate(context));
-		auto op{ builders[context.index](context) };
-		return{ std::move(op), std::move(context) };
+		auto op { builders[context.index](context) };
+		return { std::move(op), std::move(context) };
 	}
 
-	OperationResolver& getResolver()
+	std::vector<OperationType> build(std::vector<OperationBuildContext> contexts) const
+	{
+		std::vector<OperationType> operations;
+		operations.reserve(contexts.size());
+		for (OperationBuildContext& context : contexts)
+			operations.push_back(build(std::move(context)));
+		return operations;
+	}
+
+	const OperationResolver& getResolver() const
 	{
 		return resolver;
 	}
 
-	template <typename CO>
-	void addCustomOperation()
-	{
-		resolver.addDescription(CO::getDescription());
-
-		builders.push_back([](OperationBuildContext& context)
-		{
-			auto customOp = std::make_unique<CO>();
-			customOp->initialize(context);
-			return OperationVariant{ CustomOperation{ std::move(customOp) } };
-		});
-	}
-	
 	template <typename ... CO>
 	void addCustomOperations()
 	{
 		(addCustomOperation<CO>(), ...);
+		resolver.addDescriptions({ CO::getDescription() ... });
 	}
 
 protected:
@@ -143,15 +271,45 @@ protected:
 		std::vector<Builder*> opBuilders;
 		( opBuilders.push_back([](OperationBuildContext& context)
 			{
-				O op;
-				op.initialize(context);
-				return OperationVariant{ std::move(op) };
+				return createOperationExecutor<OperationVariant, O>(context);
 			}), ...);
 		return opBuilders;
 	}
 
+	template <typename E>
+	class CustomOperationExecutor : public CustomOperation::Base
+	{
+	public:
+		CustomOperationExecutor(E exec) : executor(std::move(exec))
+		{}
+
+		void execute(OperationContext& context) const override
+		{
+			executor.execute(context);
+		}
+
+	private:
+		E executor;
+	};
+
+	template <typename CO>
+	void addCustomOperation()
+	{
+		builders.push_back([](OperationBuildContext& context)
+		{
+			auto customOp{ std::visit([](auto&& exec)
+				{
+					return CustomOperation{ std::make_unique<CustomOperationExecutor<std::decay_t<decltype(exec)>>>(std::move(exec)) };
+				},
+				createOperationExecutor<Executors<CO>, CO>(context)) };
+
+			return OperationVariant{ CustomOperation{ std::move(customOp) } };
+		});
+	}
+	
 	std::vector<Builder*> builders{ createBuilders() };
-	OperationResolver resolver{ std::vector<OperationDescription>{ O::getDescription() ... } };
+
+	OperationResolver resolver;
 };
 
 
@@ -196,30 +354,28 @@ template <typename O, typename R, typename ... A>
 class OperationHelper
 {
 public:
-	void initialize(OperationBuildContext& context)
-	{
-		evaluateJump = context.jumps.size() > 1;
-		std::copy(context.jumps.begin(), context.jumps.end(), jumpTable.begin());
-	}
+	static constexpr bool voidReturn{ std::is_same_v<R, void> };
+	static constexpr std::size_t argumentCount{ sizeof...(A) };
+	static constexpr std::size_t jumpSize{ JumpTraits<R>::size };
 
-	void execute(OperationContext& context) const
+	void initialize(OperationBuildContext& context)
+	{}
+	
+	void executeVoid(OperationContext& context) const
 	{
-		context.nextStep = jumpTable[0];
-		if constexpr (voidReturn)
-		{
-			executeRet(context.arguments);
-		}
-		else if constexpr (jumpSize > 1)
-		{
-			if (evaluateJump)
-				context.nextStep = jumpTable[JumpTraits<R>::index(executeRet(context.arguments))];
-			else
-				execute(context.arguments);
-		}
-		else
-		{
-			execute(context.arguments);
-		}
+		execute(context.arguments);
+	}
+	
+	void executeRet(OperationContext& context) const
+	{
+		static constexpr std::size_t retIndex{ sizeof...(A) };
+		assert(context.arguments[retIndex] != nullptr);
+		static_cast<Value<R>*>(context.arguments[retIndex])->set(execute(context.arguments));
+	}
+	
+	std::size_t executeJump(OperationContext& context) const
+	{
+		return JumpTraits<R>::index(execute(context.arguments));
 	}
 	
 	static constexpr OperationDescription getDescription()
@@ -235,22 +391,9 @@ public:
 	}
 	
 private:
-	void execute(Arguments args) const
+	R execute(Arguments args) const
 	{
-		static constexpr std::size_t retIndex{ sizeof...(A) };
-		if (args[retIndex] == nullptr)
-		{
-			executeRet(args);
-		}
-		else
-		{
-			static_cast<Value<R>*>(args[retIndex])->set(executeRet(args));
-		}
-	}
-
-	R executeRet(Arguments args) const
-	{
-		return executeRet(args, std::index_sequence_for<A...>());
+		return execute(args, std::index_sequence_for<A...>());
 	}
 	
 	template <std::size_t I>
@@ -263,19 +406,12 @@ private:
 	}
 
 	template<std::size_t ... I>
-	R executeRet(Arguments args, std::index_sequence<I...>) const
+	R execute(Arguments args, std::index_sequence<I...>) const
 	{
 		return static_cast<const O&>(*this)(getArg<I>(args)...);
 	}
 
-	static constexpr std::size_t jumpSize{ JumpTraits<R>::size };
-	
-	static constexpr bool voidReturn{ std::is_same_v<R, void> };
-	
-	bool evaluateJump{ false };
-	std::array<int, jumpSize> jumpTable { 1 };
-
-	static std::array<const TypeId*, sizeof...(A)> argumentTypes;
+	static std::array<const TypeId*, argumentCount> argumentTypes;
 };
 
 template <typename O, typename R, typename ... A>
@@ -292,17 +428,6 @@ public:
     }
 
     static constexpr OperationId id{ I() };
-};
-
-
-template <typename O>
-class CustomOperationWrapper : public CustomOperation::Base, public O
-{
-public:
-	void execute(OperationContext& context) const override
-	{
-		O::execute(context);
-	}
 };
 
 
@@ -334,13 +459,22 @@ public:
 
 	OperationVBuilder()
 	{
-		addCustomOperations<CustomOperationWrapper<O>...>();
+		addCustomOperations<O...>();
 	}
 	
 	OperationType build(OperationBuildContext context) const
 	{
 		auto op{ std::get<CustomOperation>(Base::builders[context.index](context)) };
 		return { std::move(op), std::move(context) };
+	}
+
+	std::vector<OperationType> build(std::vector<OperationBuildContext> contexts) const
+	{
+		std::vector<OperationType> operations;
+		operations.reserve(contexts.size());
+		for (OperationBuildContext& context : contexts)
+			operations.push_back(build(std::move(context)));
+		return operations;
 	}
 };
 

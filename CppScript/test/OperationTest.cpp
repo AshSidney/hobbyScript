@@ -2,6 +2,7 @@
 
 #include <CppScript/Operation.h>
 #include <CppScript/IntValue.h>
+#include "OperationResolverProxy.h"
 #include "TestUtils.h"
 #include <array>
 #include <iterator>
@@ -87,8 +88,6 @@ public:
     static constexpr OperationId id{ "*=" };
 };
 
-using TestCustomOpFloatMult = CustomOperationWrapper<TestOpFloatMult>;
-
 
 using TestOperationBuilder = OperationBuilder<TestOpAdd, TestOpAddFloat, TestOpSetVec, TestOpVecNorm, TestOpFloatCompare>;
 
@@ -105,6 +104,34 @@ static_assert(std::is_same_v<TestOperationBuilder1, OperationBuilderExtension<Te
 static_assert(std::is_same_v<OperationBuilderExtension<TestOperationBuilder0, TestOpAddFloat, TestOpFloatCompare>::Type,
     OperationBuilderExtension<TestOperationBuilder1, TestOpFloatCompare>::Type>);
 
+template <typename OB>
+typename OB::OperationType resolveValidOperation(const OB& builder, OperationResolutionData opData, TypeFrames& frames, std::size_t expectedOpIndex)
+{
+    OperationResolverProxy resolver(builder.getResolver());
+    OperationResolverProxy::ResolutionContext context{ frames };
+    EXPECT_TRUE(resolver.resolveOperation(opData, context));
+    EXPECT_EQ(context.blockContext.operations.size(), 1);
+    auto resOp = context.blockContext.operations[0];
+    EXPECT_EQ(resOp.index, expectedOpIndex);
+    std::vector<ValuePlace> checkArgs{ opData.argumentPlaces };
+    if (opData.returnPlace)
+        checkArgs.push_back(*opData.returnPlace);
+    EXPECT_EQ(resOp.argumentPlaces, checkArgs);
+    EXPECT_EQ(resOp.jumps, opData.jumps);
+    EXPECT_EQ(resOp.location, opData.location);
+
+    auto operation = builder.build(std::move(resOp));
+    EXPECT_EQ(operation.getArgumentPlaces(), checkArgs);
+    EXPECT_EQ(operation.getLocation(), opData.location);
+    return operation; 
+}
+
+TestOperationBuilder::OperationType resolveValidOperation(OperationResolutionData opData, TypeFrames& frames, std::size_t expectedOpIndex)
+{
+    TestOperationBuilder builder;
+    return resolveValidOperation(builder, std::move(opData), frames, expectedOpIndex);
+}
+
 
 TEST(OperationTest, IntAdd)
 {
@@ -112,29 +139,28 @@ TEST(OperationTest, IntAdd)
     valInt1.set(45);
     valInt2.set(678);
 
-    TestOperationBuilder builder;
-    const auto opRes = getOpRes(builder.getResolver(), Id{"+="}, {&Value<int>::typeId, &Value<int>::typeId});
-    EXPECT_EQ(opRes.index, 0);
-    EXPECT_EQ(opRes.description.id, Id{"+="});
-    EXPECT_EQ(*opRes.description.returnType, Value<int&>::typeId);
-    EXPECT_THAT(span2Vector(opRes.description.argumentTypes),
-        testing::ElementsAre(&Value<int&>::typeId, &Value<const int>::typeId));
-    EXPECT_EQ(opRes.description.jumpCount, 1);
-    const auto opAdd = builder.build({opRes.index, {{ValuePlace::Type::Local, 0}, {ValuePlace::Type::Local, 1}, {ValuePlace::Type::Local, 2}}});
-    EXPECT_THAT(opAdd.getArgumentPlaces(), testing::ElementsAre(ValuePlace{ValuePlace::Type::Local, 0},
-        ValuePlace{ValuePlace::Type::Local, 1}, ValuePlace{ValuePlace::Type::Local, 2}));
-
-    std::array<ValueBase*, 3> args1{ &valInt1, &valInt2, nullptr };
+    TypeFrames frames;
+    auto& localFrame = getFrame(frames, ValuePlace::Type::Local);
+    localFrame = {&valInt1.getTypeId(), &valInt2.getTypeId()};
+    auto opAdd = resolveValidOperation({ {"+="}, {}, { {ValuePlace::Type::Local, 0}, {ValuePlace::Type::Local, 1} }, {1}, {10,5} },
+        frames, 0);
+    
+    std::array<ValueBase*, 2> args1{ &valInt1, &valInt2 };
     OperationContext opCont1{args1.data()};
     opAdd.execute(opCont1);
     EXPECT_EQ(opCont1.nextStep, 1);
     EXPECT_EQ(valInt1.get(), 723);
     EXPECT_EQ(valInt2.get(), 678);
 
+    const auto opAddRet = resolveValidOperation({ {"+="}, ValuePlace{ValuePlace::Type::Local, 2}, { {ValuePlace::Type::Local, 1}, {ValuePlace::Type::Local, 0} }, {1}, {12,3} },
+        frames, 0);
+    EXPECT_EQ(localFrame.size(), 3);
+    EXPECT_EQ(*localFrame[2], Value<int&>::typeId);
+
     Value<int&> refInt;
     std::array<ValueBase*, 3> args2{ &valInt2, &valInt1, &refInt };
     OperationContext opCont2{args2.data()};
-    opAdd.execute(opCont2);
+    opAddRet.execute(opCont2);
     EXPECT_EQ(opCont2.nextStep, 1);
     EXPECT_EQ(valInt1.get(), 723);
     EXPECT_EQ(valInt2.get(), 1401);
@@ -147,18 +173,13 @@ TEST(OperationTest, FloatAdd)
     valFloat1.set(45.67F);
     valFloat2.set(9.87F);
     Value<float> valFloat3;
-
-    TestOperationBuilder builder;
-    const auto opRes = getOpRes(builder.getResolver(), Id{"+="}, {&Value<float>::typeId, &Value<float>::typeId});
-    EXPECT_EQ(opRes.index, 1);
-    EXPECT_EQ(opRes.description.id, Id{"+="});
-    EXPECT_EQ(*opRes.description.returnType, Value<float>::typeId);
-    EXPECT_THAT(span2Vector(opRes.description.argumentTypes),
-        testing::ElementsAre(&Value<const float>::typeId, &Value<const float>::typeId));
-    EXPECT_EQ(opRes.description.jumpCount, 1);
-    const auto opAdd = builder.build({opRes.index, {{ValuePlace::Type::Void}, {ValuePlace::Type::Module, 3}, {ValuePlace::Type::Local, 2}}, {-5}});
-    EXPECT_THAT(opAdd.getArgumentPlaces(), testing::ElementsAre(ValuePlace{ValuePlace::Type::Void},
-        ValuePlace{ValuePlace::Type::Module, 3}, ValuePlace{ValuePlace::Type::Local, 2}));
+    
+    TypeFrames frames;
+    getFrame(frames, ValuePlace::Type::Local) = {nullptr, nullptr, &valFloat2.getTypeId()};
+    getFrame(frames, ValuePlace::Type::Module) = {nullptr, &valFloat1.getTypeId()};
+    auto opAdd = resolveValidOperation({ {"+="}, ValuePlace{ValuePlace::Type::Caller, 3},
+        { {ValuePlace::Type::Module, 1}, {ValuePlace::Type::Local, 2} }, {-5}, {148, 22} }, frames, 1);
+    EXPECT_THAT(getFrame(frames, ValuePlace::Type::Caller), testing::ElementsAre(nullptr, nullptr, nullptr, &valFloat3.getTypeId()));
 
     std::array<ValueBase*, 3> args1{ &valFloat1, &valFloat2, &valFloat3 };
     OperationContext opCont1{args1.data()};
@@ -187,22 +208,16 @@ TEST(OperationTest, SetVec)
     float vecData[3]{ 2, 3, 1 };
     vecVal.set(vecData);
 
-    TestOperationBuilder builder;
-    const auto opRes = getOpRes(builder.getResolver(), Id{"setVec", "testVec"}, {&Value<TestVec>::typeId, &Value<float[3]>::typeId});
-    EXPECT_EQ(opRes.index, 2);
-    EXPECT_EQ(opRes.description.id, (Id{"setVec", "testVec"}));
-    EXPECT_EQ(opRes.description.returnType, nullptr);
-    EXPECT_THAT(span2Vector(opRes.description.argumentTypes),
-        testing::ElementsAre(&Value<TestVec&>::typeId, &Value<const float[3]>::typeId));
-    EXPECT_EQ(opRes.description.jumpCount, 1);
-    const auto setVecOp = builder.build({opRes.index, {{ValuePlace::Type::Module, 1}, {ValuePlace::Type::Local, 0}}});
-    EXPECT_THAT(setVecOp.getArgumentPlaces(), testing::ElementsAre(ValuePlace{ValuePlace::Type::Module, 1},
-        ValuePlace{ValuePlace::Type::Local, 0}));
+    TypeFrames frames;
+    getFrame(frames, ValuePlace::Type::Local) = {nullptr, &vec.getTypeId()};
+    getFrame(frames, ValuePlace::Type::Module) = {nullptr, &vecVal.getTypeId()};
+    auto setVecOp = resolveValidOperation({ {"setVec", "testVec"}, {}, {{ValuePlace::Type::Local, 1}, {ValuePlace::Type::Module, 1}},
+        {3}, {234, 53} }, frames, 2);
 
     std::array<ValueBase*, 2> args{&vec, &vecVal};
     OperationContext opCont{args.data()};
     setVecOp.execute(opCont);
-    EXPECT_EQ(opCont.nextStep, 1);
+    EXPECT_EQ(opCont.nextStep, 3);
     EXPECT_EQ(vec.get().vec[0], 2);
     EXPECT_EQ(vec.get().vec[1], 3);
     EXPECT_EQ(vec.get().vec[2], 1);
@@ -222,15 +237,11 @@ TEST(OperationTest, NormVec)
     TestVec vecSrc;
     Value<TestVec&> vec;
     vec.set(vecSrc);
-    TestOperationBuilder builder;
-    const auto opRes = getOpRes(builder.getResolver(), Id{"norm", "testVec"}, {&Value<TestVec>::typeId});
-    EXPECT_EQ(opRes.index, 3);
-    EXPECT_EQ(opRes.description.id, (Id{"norm", "testVec"}));
-    EXPECT_EQ(opRes.description.returnType, nullptr);
-    EXPECT_THAT(span2Vector(opRes.description.argumentTypes), testing::ElementsAre(&Value<TestVec&>::typeId));
-    EXPECT_EQ(opRes.description.jumpCount, 1);
-    const auto normVecOp = builder.build({opRes.index, {{ValuePlace::Type::Module, 4}}});
-    EXPECT_THAT(normVecOp.getArgumentPlaces(), testing::ElementsAre(ValuePlace{ValuePlace::Type::Module, 4}));
+
+    TypeFrames frames;
+    getFrame(frames, ValuePlace::Type::Module) = {nullptr, nullptr, &vec.getTypeId()};
+    auto normVecOp = resolveValidOperation({ {"norm", "testVec"}, {}, {{ValuePlace::Type::Module, 2}},
+        {1}, {78, 9} }, frames, 3);
 
     std::array<ValueBase*, 1> args{&vec};
     OperationContext opCont{args.data()};
@@ -257,19 +268,13 @@ TEST(OperationTest, FloatCompareJump)
     valFloat1.set(45.67F);
     valFloat2.set(9.87F);
 
-    TestOperationBuilder builder;
-    const auto opRes = getOpRes(builder.getResolver(), Id{"<=>"}, {&Value<const float>::typeId, &Value<const float>::typeId});
-    EXPECT_EQ(opRes.index, 4);
-    EXPECT_EQ(opRes.description.id, Id{"<=>"});
-    EXPECT_EQ(*opRes.description.returnType, Value<std::partial_ordering>::typeId);
-    EXPECT_THAT(span2Vector(opRes.description.argumentTypes),
-        testing::ElementsAre(&Value<const float>::typeId, &Value<const float>::typeId));
-    EXPECT_EQ(opRes.description.jumpCount, 3);
-    const auto opCompare = builder.build({opRes.index, {{ValuePlace::Type::Module, 5}, {ValuePlace::Type::Local, 6}}, {-2, 7, 3}});
-    EXPECT_THAT(opCompare.getArgumentPlaces(), testing::ElementsAre(ValuePlace{ValuePlace::Type::Module, 5},
-        ValuePlace{ValuePlace::Type::Local, 6}));
-
-    std::array<ValueBase*, 3> args{ &valFloat1, &valFloat2, nullptr };
+    TypeFrames frames;
+    getFrame(frames, ValuePlace::Type::Local) = {nullptr, &valFloat2.getTypeId()};
+    getFrame(frames, ValuePlace::Type::Module) = {nullptr, nullptr, &valFloat1.getTypeId()};
+    auto opCompare = resolveValidOperation({ {"<=>"}, {}, {{ValuePlace::Type::Module, 2}, {ValuePlace::Type::Local, 1}},
+        {-2, 7, 3}, {45, 16} }, frames, 4);
+    
+    std::array<ValueBase*, 2> args{ &valFloat1, &valFloat2 };
     OperationContext opCont{args.data()};
     opCompare.execute(opCont);
     EXPECT_EQ(opCont.nextStep, 3);
@@ -285,24 +290,19 @@ TEST(OperationTest, FloatCompareJump)
 
 TEST(OperationTest, GetArgumentPlaces)
 {
-    const std::vector<TestOperationBuilder::OperationType> operations{ []()
-        {
-            const TestOperationBuilder builder;
-            std::vector<TestOperationBuilder::OperationType> ops;
-            ops.push_back(builder.build({0, {{ValuePlace::Type::Local, 0}, {ValuePlace::Type::Module, 1}, {ValuePlace::Type::Local, 2}}, {1} }));
-            ops.push_back(builder.build({1, {{ValuePlace::Type::Module, 3}, {ValuePlace::Type::Local, 4}, {ValuePlace::Type::Void}}, {-1}}));
-            ops.push_back(builder.build({4, {{ValuePlace::Type::Local, 8}, {ValuePlace::Type::Local, 2}}, {2, -3, 5}}));
-            ops.push_back(builder.build({2, {{ValuePlace::Type::Module, 5}, {ValuePlace::Type::Module, 6}}, {}}));
-            ops.push_back(builder.build({4, {{ValuePlace::Type::Local, 1}, {ValuePlace::Type::Module, 0}}, {1, 3, -2}})),
-            ops.push_back(builder.build({3, {{ValuePlace::Type::Module, 3}}, {}}));
-            return ops;
-        }() };
+    const TestOperationBuilder builder;
+    const std::vector<TestOperationBuilder::OperationType> operations{ builder.build(std::vector<OperationBuildContext>
+        {{0, {{ValuePlace::Type::Local, 0}, {ValuePlace::Type::Module, 1}, {ValuePlace::Type::Local, 2}}, {1}},
+        {1, {{ValuePlace::Type::Module, 3}, {ValuePlace::Type::Local, 4}}, {-1}},
+        {4, {{ValuePlace::Type::Local, 8}, {ValuePlace::Type::Local, 2}}, {2, -3, 5}},
+        {2, {{ValuePlace::Type::Module, 5}, {ValuePlace::Type::Module, 6}}},
+        {4, {{ValuePlace::Type::Local, 1}, {ValuePlace::Type::Module, 0}}, {1, 3, -2}},
+        {3, {{ValuePlace::Type::Module, 3}}} }) };
     const auto argValues = getArgumentPlaces(operations);
     EXPECT_EQ(argValues.size(), 6);
     EXPECT_THAT(*argValues[0], testing::ElementsAre(ValuePlace{ValuePlace::Type::Local, 0},
         ValuePlace{ValuePlace::Type::Module, 1}, ValuePlace{ValuePlace::Type::Local, 2}));
-    EXPECT_THAT(*argValues[1], testing::ElementsAre(ValuePlace{ValuePlace::Type::Module, 3},
-        ValuePlace{ValuePlace::Type::Local, 4}, ValuePlace{ValuePlace::Type::Void}));
+    EXPECT_THAT(*argValues[1], testing::ElementsAre(ValuePlace{ValuePlace::Type::Module, 3}, ValuePlace{ValuePlace::Type::Local, 4}));
     EXPECT_THAT(*argValues[2], testing::ElementsAre(ValuePlace{ValuePlace::Type::Local, 8}, ValuePlace{ValuePlace::Type::Local, 2}));
     EXPECT_THAT(*argValues[3], testing::ElementsAre(ValuePlace{ValuePlace::Type::Module, 5},
         ValuePlace{ValuePlace::Type::Module, 6}));
@@ -317,34 +317,50 @@ public:
     CustomOperationMock(Id id = {})
     {
         mocks.push_back({ this, id });
+        if (id != Id{})
+            EXPECT_CALL(*this, initialize(testing::_)).Times(1);
     }
 
     ~CustomOperationMock()
     {
-        mocks.erase(std::find_if(mocks.begin(), mocks.end(), [this](const MockData& mock){ return this == mock.mock; }));
+        if (auto mockIt = findMock(*this); mockIt != mocks.end())
+            mocks.erase(mockIt);
     }
+
+    CustomOperationMock(CustomOperationMock&& other) noexcept
+    {
+        if (auto mockIt = other.findMock(other); mockIt != mocks.end())
+            mockIt->mock = this;
+    }
+
+	MOCK_METHOD(void, initialize, (OperationBuildContext& context), ());
+	MOCK_METHOD(void, executeVoid, (OperationContext& context), (const));
+	MOCK_METHOD(void, executeRet, (OperationContext& context), (const));
+	MOCK_METHOD(std::size_t, executeJump, (OperationContext& context), (const));
 
 	MOCK_METHOD(void, execute, (OperationContext& context), (const, override));
-
-    void initialize(OperationBuildContext& context)
-    {
-        jumps = context.jumps;
-    }
-
-    static std::vector<CustomOperationMock*> getMocks(Id id)
-    {
-        std::vector<CustomOperationMock*> result;
-        for (const MockData& mock : mocks)
-            if (mock.id == id)
-                result.push_back(mock.mock);
-        return result;
-    }
 
     struct MockData
     {
         CustomOperationMock* mock;
         Id id;
     };
+
+    static std::vector<CustomOperationMock*> getMocks(Id id)
+    {
+        std::vector<CustomOperationMock*> result;
+        for (const MockData& mock : mocks)
+        {
+            if (mock.id == id)
+                result.push_back(mock.mock);
+        }
+        return result;
+    }
+
+    std::vector<MockData>::iterator findMock(CustomOperationMock& mock)
+    {
+        return std::find_if(mocks.begin(), mocks.end(), [&mock](const MockData& mockData){ return &mock == mockData.mock; });
+    }
 
     std::vector<int> jumps;
 
@@ -373,114 +389,116 @@ TEST(OperationTest, CustomOperation)
 class CustomOperationMock1 : public CustomOperationMock
 {
 public:
-    CustomOperationMock1() : CustomOperationMock(getDescription().id){}
+    static constexpr bool voidReturn{ true };
+	static constexpr std::size_t argumentCount{ 1 };
+    static constexpr std::size_t jumpSize{ 1 };
+    static constexpr Id id{ "firstOp" };
+
+    CustomOperationMock1() : CustomOperationMock(id){}
+
     static OperationDescription getDescription()
     {
         static std::vector<const TypeId*> argTypes{ &Value<const float>::typeId, &Value<TestVec*>::typeId };
-        return { {"firstOp"}, &Value<float>::typeId, { argTypes.begin(), argTypes.end() }, 1 };
+        return { id, nullptr, { argTypes.begin(), argTypes.end() }, 1 };
     }
 };
 
 class CustomOperationMock2 : public CustomOperationMock
 {
 public:
-    CustomOperationMock2() : CustomOperationMock(getDescription().id){}
+    static constexpr bool voidReturn{ false };
+	static constexpr std::size_t argumentCount{ 2 };
+    static constexpr std::size_t jumpSize{ 2 };
+    static constexpr Id id{ "secOp", "testModule" };
+
+    CustomOperationMock2() : CustomOperationMock(id){}
+
     static OperationDescription getDescription()
     {
         static std::vector<const TypeId*> argTypes{ &Value<int&>::typeId };
-        return { { "secOp", "testModule" }, nullptr, { argTypes.begin(), argTypes.end() }, 2 };
+        return { id, &Value<bool>::typeId, { argTypes.begin(), argTypes.end() }, 2 };
     }
 };
 
 TEST(OperationTest, CustomOperationsAddMockClasses)
 {
     TestOperationBuilder0 builder;
-    OperationResolver& resolver = builder.getResolver();
-    ASSERT_EQ(resolver.getCount(), 1);
+    const auto& resolver = builder.getResolver();
+    ASSERT_EQ(resolver.getDescriptions().size(), 1);
     builder.addCustomOperations<CustomOperationMock1, CustomOperationMock2>();
-    ASSERT_EQ(resolver.getCount(), 3);
-
-    const auto opRes0 = getOpRes(resolver, {"+="}, {&Value<int&>::typeId, &Value<const int>::typeId});
-    EXPECT_EQ(opRes0.index, 0);
-    EXPECT_EQ(opRes0.description.id, Id{"+="});
-    EXPECT_EQ(*opRes0.description.returnType, Value<int&>::typeId);
-    EXPECT_THAT(span2Vector(opRes0.description.argumentTypes),
+    const auto& descrs = resolver.getDescriptions();
+    ASSERT_EQ(descrs.size(), 3);
+    EXPECT_EQ(descrs[0].id, Id{"+="});
+    EXPECT_EQ(*descrs[0].returnType, Value<int&>::typeId);
+    EXPECT_THAT(span2Vector(descrs[0].argumentTypes),
         testing::ElementsAre(&Value<int&>::typeId, &Value<const int>::typeId));
-    EXPECT_EQ(opRes0.description.jumpCount, 1);
-    const auto opAdd = builder.build({opRes0.index, {{ValuePlace::Type::Module, 1}, {ValuePlace::Type::Caller, 2}, {ValuePlace::Type::Void}}});
-    EXPECT_THAT(opAdd.getArgumentPlaces(), testing::ElementsAre(ValuePlace{ValuePlace::Type::Module, 1},
-        ValuePlace{ValuePlace::Type::Caller, 2}, ValuePlace{ValuePlace::Type::Void}));
+    EXPECT_EQ(descrs[0].jumpCount, 1);
+    const auto descrMock1 = CustomOperationMock1::getDescription();
+    EXPECT_EQ(descrs[1].id, descrMock1.id);
+    EXPECT_EQ(descrs[1].returnType, descrMock1.returnType);
+    EXPECT_THAT(descrs[1].argumentTypes, descrMock1.argumentTypes);
+    EXPECT_EQ(descrs[1].jumpCount, descrMock1.jumpCount);
+    const auto descrMock2 = CustomOperationMock2::getDescription();
+    EXPECT_EQ(descrs[2].id, descrMock2.id);
+    EXPECT_EQ(descrs[2].returnType, descrMock2.returnType);
+    EXPECT_THAT(descrs[2].argumentTypes, descrMock2.argumentTypes);
+    EXPECT_EQ(descrs[2].jumpCount, descrMock2.jumpCount);
+
     Value<int> valInt1, valInt2;
     valInt1.set(123);
     valInt2.set(789);
-    std::array<ValueBase*, 3> args0{ &valInt1, &valInt2, nullptr };
+    TypeFrames frames;
+    getFrame(frames, ValuePlace::Type::Local) = {&valInt1.getTypeId(), &valInt2.getTypeId()};
+    auto opAdd = resolveValidOperation(builder, { {"+="}, {}, { {ValuePlace::Type::Local, 1}, {ValuePlace::Type::Local, 0} }, {1}, {120, 25} },
+        frames, 0);
+    std::array<ValueBase*, 2> args0{ &valInt1, &valInt2 };
     OperationContext opCont1{args0.data()};
     opAdd.execute(opCont1);
     EXPECT_EQ(opCont1.nextStep, 1);
     EXPECT_EQ(valInt1.get(), 912);
     EXPECT_EQ(valInt2.get(), 789);
 
-    const auto opRes1 = getOpRes(resolver, {"firstOp"}, {&Value<const float>::typeId, &Value<TestVec*>::typeId});
-    EXPECT_EQ(opRes1.index, 1);
-    EXPECT_EQ(opRes1.description.id, Id{"firstOp"});
-    EXPECT_EQ(*opRes1.description.returnType, Value<float>::typeId);
-    EXPECT_THAT(span2Vector(opRes1.description.argumentTypes),
-        testing::ElementsAre(&Value<const float>::typeId, &Value<TestVec*>::typeId));
-    EXPECT_EQ(opRes1.description.jumpCount, 1);
-    const auto opFirst = builder.build({opRes1.index, {{ValuePlace::Type::Local, 3}, {ValuePlace::Type::Caller, 1}, {ValuePlace::Type::Module, 0}}, {4}});
-    EXPECT_THAT(opFirst.getArgumentPlaces(), testing::ElementsAre(ValuePlace{ValuePlace::Type::Local, 3},
-        ValuePlace{ValuePlace::Type::Caller, 1}, ValuePlace{ValuePlace::Type::Module, 0}));
-    auto* firstMock = CustomOperationMock::getMocks({"firstOp"}).front();
-    EXPECT_THAT(firstMock->jumps, testing::ElementsAre(4));
+    getFrame(frames, ValuePlace::Type::Local).push_back(&Value<float>::typeId);
+    getFrame(frames, ValuePlace::Type::Caller) = {nullptr, &Value<TestVec>::typeId};
+    auto opMock1 = resolveValidOperation(builder, { {"firstOp"}, {}, { {ValuePlace::Type::Local, 2}, {ValuePlace::Type::Caller, 1} },
+        {4}, {178, 6} }, frames, 1);
+
+    auto opMock2 = resolveValidOperation(builder, { {"secOp", "testModule"}, {}, { {ValuePlace::Type::Local, 0} },
+        {-5, -2}, {179, 41} }, frames, 2);
 
     OperationContext context;
-    EXPECT_CALL(*firstMock, execute(testing::Ref(context)))
-        .WillOnce([](OperationContext& ctx){ ctx.nextStep = 6; });
-    opFirst.execute(context);
-    EXPECT_EQ(context.nextStep, 6);
+    auto* mock1 = CustomOperationMock::getMocks({"firstOp"}).front();
+    EXPECT_CALL(*mock1, executeVoid(testing::Ref(context))).Times(1);
+    opMock1.execute(context);
+    EXPECT_EQ(context.nextStep, 4);
 
-    const auto opRes2 = getOpRes(resolver, {"secOp", "testModule"}, {&Value<int&>::typeId});
-    EXPECT_EQ(opRes2.index, 2);
-    EXPECT_EQ(opRes2.description.id, (Id{"secOp", "testModule"}));
-    EXPECT_EQ(opRes2.description.returnType, nullptr);
-    EXPECT_THAT(span2Vector(opRes2.description.argumentTypes), testing::ElementsAre(&Value<int&>::typeId));
-    EXPECT_EQ(opRes2.description.jumpCount, 2);
-    const auto opSec = builder.build({opRes2.index, {{ValuePlace::Type::Caller, 2}}, {-5, 1}});
-    EXPECT_THAT(opSec.getArgumentPlaces(), testing::ElementsAre(ValuePlace{ValuePlace::Type::Caller, 2}));
-    auto* secMock = CustomOperationMock::getMocks({"secOp", "testModule"}).front();
-    EXPECT_THAT(secMock->jumps, testing::ElementsAre(-5, 1));
-
-    EXPECT_CALL(*secMock, execute(testing::Ref(context)))
-        .WillOnce([](OperationContext& ctx){ ctx.nextStep = -8; });
-    opSec.execute(context);
-    EXPECT_EQ(context.nextStep, -8);
-
-    EXPECT_CALL(*firstMock, execute(testing::Ref(context)))
-        .WillOnce([](OperationContext& ctx){ ctx.nextStep = 2; });
-    opFirst.execute(context);
-    EXPECT_EQ(context.nextStep, 2);
+    auto* mock2 = CustomOperationMock::getMocks({"secOp", "testModule"}).front();
+    EXPECT_CALL(*mock2, executeJump(testing::Ref(context)))
+        .WillOnce(testing::Return(1));
+    opMock2.execute(context);
+    EXPECT_EQ(context.nextStep, -2);
+    EXPECT_CALL(*mock2, executeJump(testing::Ref(context)))
+        .WillOnce(testing::Return(0));
+    opMock2.execute(context);
+    EXPECT_EQ(context.nextStep, -5);
 }
 
 TEST(OperationTest, CustomOperationsAddTestClass)
 {
     TestOperationBuilder1 builder;
-    OperationResolver& resolver = builder.getResolver();
-    ASSERT_EQ(resolver.getCount(), 2);
-    builder.addCustomOperations<TestCustomOpFloatMult>();
-    ASSERT_EQ(resolver.getCount(), 3);
-    const auto opRes = getOpRes(resolver, {"*="}, {&Value<float&>::typeId, &Value<const float>::typeId});
-    EXPECT_EQ(opRes.index, 2);
-    EXPECT_EQ(opRes.description.id, Id{"*="});
-    EXPECT_EQ(opRes.description.returnType, nullptr);
-    EXPECT_THAT(span2Vector(opRes.description.argumentTypes),
-        testing::ElementsAre(&Value<float&>::typeId, &Value<const float>::typeId));
-    EXPECT_EQ(opRes.description.jumpCount, 1);
+    const auto& resolver = builder.getResolver();
+    ASSERT_EQ(resolver.getDescriptions().size(), 2);
+    builder.addCustomOperations<TestOpFloatMult>();
+    ASSERT_EQ(resolver.getDescriptions().size(), 3);
 
-    const auto opMult = builder.build({opRes.index, {{ValuePlace::Type::Local, 3}, {ValuePlace::Type::Caller, 1}}});
-    EXPECT_THAT(opMult.getArgumentPlaces(), testing::ElementsAre(ValuePlace{ValuePlace::Type::Local, 3}, ValuePlace{ValuePlace::Type::Caller, 1}));
     Value<float> val1, val2;
     val1.set(8.5F);
     val2.set(13.2F);
+    TypeFrames frames;
+    getFrame(frames, ValuePlace::Type::Local) = {&val1.getTypeId(), &val2.getTypeId()};
+    auto opMult = resolveValidOperation(builder, { {"*="}, {}, { {ValuePlace::Type::Local, 0}, {ValuePlace::Type::Local, 1} }, {1}, {14, 10} },
+        frames, 2);
+
     std::array<ValueBase*, 2> args{ &val1, &val2 };
     OperationContext opCont{args.data()};
     opMult.execute(opCont);

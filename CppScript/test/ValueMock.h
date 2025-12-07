@@ -36,8 +36,7 @@ public:
 
     static const CppScript::TypeId& getBaseTypeId()
     {
-        auto& valueTypeId = CppScript::Value<T>::typeId;
-        return valueTypeId.isReference() ? *valueTypeId.commonPtrId : *valueTypeId.commonTypeId;
+        return *CppScript::Value<T>::typeId.commonTypeId;
     }
  };
 

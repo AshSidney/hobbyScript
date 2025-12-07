@@ -55,7 +55,7 @@ private:
     static_assert(std::is_same_v<std::tuple_element_t<0, decltype(enumItems<E>())>, Id>);
 
     template <typename T>
-    static constexpr auto makeSequence(T items)
+    static constexpr auto makeSequenceSkipId(T items)
     {
         return []<std::size_t ... I>(std::index_sequence<I...>)
         {
@@ -72,7 +72,7 @@ private:
     template <typename T>
     static constexpr E min(T items)
     {
-        return minIndexed(items, makeSequence(items));
+        return minIndexed(items, makeSequenceSkipId(items));
     }
 
     template <typename T, std::size_t ... I>
@@ -84,7 +84,7 @@ private:
     template <typename T>
     static constexpr E max(T items)
     {
-        return maxIndexed(items, makeSequence(items));
+        return maxIndexed(items, makeSequenceSkipId(items));
     }
    
     static constexpr E minValue{ min(enumItems<E>()) };
@@ -110,7 +110,7 @@ private:
     static Names names()
     {
         auto items = enumItems<E>();
-        return namesIndexed(items, makeSequence(items));
+        return namesIndexed(items, makeSequenceSkipId(items));
     }
 
 public:

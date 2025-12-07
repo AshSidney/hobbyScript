@@ -1,9 +1,10 @@
 #include <gtest/gtest.h>
 
 #include <CppScript/IntValue.h>
-#include "Fibonacci.h"
+#include "PerfAlgorithms.h"
 
 using namespace CppScript;
+using namespace CppScriptTest;
 
 
 template<typename T> std::string toString(const T& value, std::vector<std::function<std::ios_base&(std::ios_base&)>> modifiers = {})
@@ -147,6 +148,15 @@ TEST(IntValueTest, Fibonacci)
 	EXPECT_EQ(fibonacci2<IntValue>(1000), IntValue{fib1000});
 }
 
+TEST(IntValueTest, Factorial)
+{
+	EXPECT_EQ(factorial<IntValue>(5), 120_I);
+	EXPECT_EQ(factorial<IntValue>(20), IntValue{fact20});
+	EXPECT_EQ(factorial<IntValue>(50), IntValue{fact50});
+	EXPECT_EQ(factorial<IntValue>(100), IntValue{fact100});
+	EXPECT_EQ(factorial<IntValue>(200), IntValue{fact200});
+}
+
 constexpr int perfRepeats{ 10000 };
 
 TEST(IntValuePerformanceTest, Fibonacci_Small_SegType)
@@ -238,4 +248,33 @@ TEST(IntValuePerformanceTest, Fibonacci2_BigPtr)
 	const IntValue result { fib1000 };
 	for (int i = 0; i < perfRepeats; ++i)
 		EXPECT_EQ(fibonacci2Ptr(1000), result);
+}
+
+
+TEST(IntValuePerformanceTest, Factorial_Small)
+{
+	const IntValue result { fact20 };
+	for (int i = 0; i < perfRepeats; ++i)
+		EXPECT_EQ(factorial<IntValue>(20), result);
+}
+
+TEST(IntValuePerformanceTest, Factorial_Middle)
+{
+	const IntValue result { fact50 };
+	for (int i = 0; i < perfRepeats; ++i)
+		EXPECT_EQ(factorial<IntValue>(50), result);
+}
+
+TEST(IntValuePerformanceTest, Factorial_Middle2)
+{
+	const IntValue result { fact100 };
+	for (int i = 0; i < perfRepeats; ++i)
+		EXPECT_EQ(factorial<IntValue>(100), result);
+}
+
+TEST(IntValuePerformanceTest, Factorial_Big)
+{
+	const IntValue result { fact200 };
+	for (int i = 0; i < perfRepeats; ++i)
+		EXPECT_EQ(factorial<IntValue>(200), result);
 }

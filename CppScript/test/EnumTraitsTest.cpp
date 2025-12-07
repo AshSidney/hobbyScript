@@ -1,4 +1,4 @@
-#include <gtest/gtest.h>
+#include <gmock/gmock.h>
 
 #include <CppScript/EnumTraits.h>
 #include "TestUtils.h"

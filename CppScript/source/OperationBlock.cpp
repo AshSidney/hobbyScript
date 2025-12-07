@@ -34,13 +34,9 @@ OperationBlockLayout::OperationBlockLayout(std::vector<const TypeId*> valTypes, 
 
 void OperationBlockLayout::addType(const TypeId& typeId)
 {
-    if (Alignment::isAligned(valuesLayout.size, typeId.layout.alignment))
+    auto backIt = valuesOrder.rbegin();
+    if (!Alignment::isAligned(valuesLayout.size, typeId.layout.alignment))
     {
-        valuesOrder.push_back(valuesOrder.size());
-    }
-    else
-    {
-        auto backIt = valuesOrder.rbegin();
         std::size_t backOffset = valuesLayout.size;
         do
         {
@@ -49,8 +45,8 @@ void OperationBlockLayout::addType(const TypeId& typeId)
             assert((backIt == valuesOrder.rend()) == (backOffset == 0));
         }
         while (!Alignment::isAligned(backOffset, typeId.layout.alignment));
-        valuesOrder.insert(backIt.base(), valuesOrder.size());
     }
+    valuesOrder.insert(backIt.base(), valuesOrder.size());
 
     valuesLayout += typeId.layout;
 
@@ -68,19 +64,23 @@ std::size_t OperationBlockLayout::countArguments() const
 }
 
 
-ValuesFrame::~ValuesFrame() noexcept
+ValuesFrame::ValuesFrame(ValuesFrame&& source) noexcept
+{
+    std::swap(values, source.values);
+}
+
+VariablesFrame::~VariablesFrame() noexcept
 {
     for (ValueBase* value : destructValues)
         value->~ValueBase();
 }
 
-ValuesFrame::ValuesFrame(ValuesFrame&& other) noexcept
+VariablesFrame::VariablesFrame(VariablesFrame&& source) noexcept : ValuesFrame(std::move(source))
 {
-    std::swap(values, other.values);
-    std::swap(destructValues, other.destructValues);
+    std::swap(destructValues, source.destructValues);
 }
 
-std::byte* ValuesFrame::initialize(std::byte* buffer, const OperationBlockLayout& layout)
+std::byte* VariablesFrame::initialize(std::byte* buffer, const OperationBlockLayout& layout)
 {
     assert(values.empty());
     assert(Alignment::isAligned(reinterpret_cast<std::size_t>(buffer), layout.valuesLayout.alignment));
@@ -107,6 +107,25 @@ std::byte* ValuesFrame::initialize(std::byte* buffer, const OperationBlockLayout
     return buffer + endOffset;
 }
 
+ConstantsFrame::ConstantsFrame(std::vector<std::unique_ptr<ValueBase>> constVals)
+{
+    constValues.reserve(constVals.size());
+    std::transform(constVals.begin(), constVals.end(), std::back_inserter(constValues),
+        [](std::unique_ptr<ValueBase>& val){ return val.release(); });
+    values = { constValues.begin(), constValues.end() };
+}
+
+ConstantsFrame::~ConstantsFrame() noexcept
+{
+    for (ValueBase* value : constValues)
+        delete value;
+}
+
+ConstantsFrame::ConstantsFrame(ConstantsFrame&& source) noexcept : ValuesFrame(std::move(source))
+{
+    std::swap(constValues, source.constValues);
+}
+
 
 std::byte* OperationsArgumentsFrame::initialize(std::byte* buffer, const OperationBlockLayout& layout, OperationBlockContext& context)
 {
@@ -123,7 +142,7 @@ std::byte* OperationsArgumentsFrame::initialize(std::byte* buffer, const Operati
         for (const ValuePlace place : argPlaces)
         {
             if (const std::size_t frameIndex = EnumTraits<ValuePlace::Type>::index(place.placeType); frameIndex < context.frames.size())
-                *argIt = &context.frames[frameIndex]->get(place.index);
+                *argIt = context.frames[frameIndex][place.index];
             else
                 *argIt = nullptr;
             ++argIt;

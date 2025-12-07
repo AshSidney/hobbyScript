@@ -14,7 +14,7 @@ TEST(ValueTest, StdIntValueAndType)
     EXPECT_TRUE(valInt.getTypeId().isFinalType);
     EXPECT_FALSE(valInt.getTypeId().commonTypeId->isFinalType);
     EXPECT_EQ(valInt.getTypeId().commonTypeId, &ValueCommon<int>::typeId);
-    EXPECT_EQ(valInt.getTypeId().commonPtrId, &ValueCommonPtr<int>::typeId);
+    EXPECT_EQ(valInt.getTypeId().getCommonPtrId(), &ValueCommonPtr<int>::typeId);
     EXPECT_EQ(valInt.getTypeId().layout.size, sizeof(valInt));
     EXPECT_EQ(valInt.getTypeId().layout.alignment, alignof(decltype(valInt)));
     EXPECT_FALSE(valInt.getTypeId().isReference());
@@ -28,7 +28,7 @@ TEST(ValueTest, StdIntValueAndType)
     EXPECT_NE(valInt.getTypeId(), constInt.getTypeId());
     EXPECT_TRUE(constInt.getTypeId().isFinalType);
     EXPECT_EQ(constInt.getTypeId().commonTypeId, &ValueCommon<int>::typeId);
-    EXPECT_EQ(constInt.getTypeId().commonPtrId, &ValueCommonPtr<int>::typeId);
+    EXPECT_EQ(constInt.getTypeId().getCommonPtrId(), &ValueCommonPtr<int>::typeId);
     EXPECT_EQ(constInt.getTypeId().layout.size, sizeof(constInt));
     EXPECT_EQ(constInt.getTypeId().layout.alignment, alignof(Value<const int>));
     EXPECT_FALSE(constInt.getTypeId().isReference());
@@ -42,9 +42,8 @@ TEST(ValueTest, FloatValuePointer)
 {
     Value<float*> floatPtr;
     EXPECT_TRUE(floatPtr.getTypeId().isFinalType);
-    EXPECT_EQ(floatPtr.getTypeId().commonTypeId, nullptr);
-    EXPECT_FALSE(floatPtr.getTypeId().commonPtrId->isFinalType);
-    EXPECT_EQ(*floatPtr.getTypeId().commonPtrId, ValueCommonPtr<float>::typeId);
+    EXPECT_FALSE(floatPtr.getTypeId().getCommonPtrId()->isFinalType);
+    EXPECT_EQ(*floatPtr.getTypeId().getCommonPtrId(), ValueCommonPtr<float>::typeId);
     EXPECT_EQ(floatPtr.getTypeId().layout.size, sizeof(floatPtr));
     EXPECT_EQ(floatPtr.getTypeId().layout.alignment, alignof(Value<float*>));
     EXPECT_TRUE(floatPtr.getTypeId().isReference());
@@ -56,9 +55,8 @@ TEST(ValueTest, FloatValuePointer)
 
     Value<const float*> floatConstPtr;
     EXPECT_TRUE(floatConstPtr.getTypeId().isFinalType);
-    EXPECT_EQ(floatConstPtr.getTypeId().commonTypeId, nullptr);
-    EXPECT_FALSE(floatConstPtr.getTypeId().commonPtrId->isFinalType);
-    EXPECT_EQ(*floatConstPtr.getTypeId().commonPtrId, ValueCommonPtr<float>::typeId);
+    EXPECT_FALSE(floatConstPtr.getTypeId().getCommonPtrId()->isFinalType);
+    EXPECT_EQ(*floatConstPtr.getTypeId().getCommonPtrId(), ValueCommonPtr<float>::typeId);
     EXPECT_EQ(floatConstPtr.getTypeId().layout.size, sizeof(floatConstPtr));
     EXPECT_EQ(floatConstPtr.getTypeId().layout.alignment, alignof(decltype(floatConstPtr)));
     EXPECT_TRUE(floatConstPtr.getTypeId().isReference());
@@ -77,9 +75,8 @@ TEST(ValueTest, StructLReference)
 
     Value<TestStruct&> structRef;
     EXPECT_TRUE(structRef.getTypeId().isFinalType);
-    EXPECT_EQ(structRef.getTypeId().commonTypeId, nullptr);
-    EXPECT_FALSE(structRef.getTypeId().commonPtrId->isFinalType);
-    EXPECT_EQ(*structRef.getTypeId().commonPtrId, ValueCommonPtr<TestStruct>::typeId);
+    EXPECT_FALSE(structRef.getTypeId().getCommonPtrId()->isFinalType);
+    EXPECT_EQ(*structRef.getTypeId().getCommonPtrId(), ValueCommonPtr<TestStruct>::typeId);
     EXPECT_EQ(structRef.getTypeId().layout.size, sizeof(structRef));
     EXPECT_EQ(structRef.getTypeId().layout.alignment, alignof(decltype(structRef)));
     EXPECT_EQ(structVal.getTypeId().layout.size, sizeof(structVal));
@@ -94,9 +91,8 @@ TEST(ValueTest, StructLReference)
 
     Value<const TestStruct&> structConstRef;
     EXPECT_TRUE(structConstRef.getTypeId().isFinalType);
-    EXPECT_EQ(structConstRef.getTypeId().commonTypeId, nullptr);
-    EXPECT_FALSE(structConstRef.getTypeId().commonPtrId->isFinalType);
-    EXPECT_EQ(*structConstRef.getTypeId().commonPtrId, ValueCommonPtr<TestStruct>::typeId);
+    EXPECT_FALSE(structConstRef.getTypeId().getCommonPtrId()->isFinalType);
+    EXPECT_EQ(*structConstRef.getTypeId().getCommonPtrId(), ValueCommonPtr<TestStruct>::typeId);
     EXPECT_EQ(structConstRef.getTypeId().layout.size, sizeof(structConstRef));
     EXPECT_EQ(structConstRef.getTypeId().layout.alignment, alignof(decltype(structConstRef)));
     EXPECT_NE(structRef.getTypeId(), structConstRef.getTypeId());
@@ -112,9 +108,8 @@ TEST(ValueTest, Array)
 {
     Value<const int[3]> valArrInt;
     EXPECT_TRUE(valArrInt.getTypeId().isFinalType);
-    EXPECT_EQ(valArrInt.getTypeId().commonTypeId, nullptr);
-    EXPECT_FALSE(valArrInt.getTypeId().commonPtrId->isFinalType);
-    EXPECT_EQ(*valArrInt.getTypeId().commonPtrId, ValueCommonPtr<int>::typeId);
+    EXPECT_FALSE(valArrInt.getTypeId().getCommonPtrId()->isFinalType);
+    EXPECT_EQ(*valArrInt.getTypeId().getCommonPtrId(), ValueCommonPtr<int>::typeId);
     EXPECT_EQ(valArrInt.getTypeId().layout.size, sizeof(valArrInt));
     EXPECT_EQ(valArrInt.getTypeId().layout.alignment, alignof(decltype(valArrInt)));
     EXPECT_TRUE(valArrInt.getTypeId().isReference());
@@ -127,9 +122,8 @@ TEST(ValueTest, Array)
 
     Value<TestStruct[]> valArrStruc;
     EXPECT_TRUE(valArrStruc.getTypeId().isFinalType);
-    EXPECT_EQ(valArrStruc.getTypeId().commonTypeId, nullptr);
-    EXPECT_FALSE(valArrStruc.getTypeId().commonPtrId->isFinalType);
-    EXPECT_EQ(*valArrStruc.getTypeId().commonPtrId, ValueCommonPtr<TestStruct>::typeId);
+    EXPECT_FALSE(valArrStruc.getTypeId().getCommonPtrId()->isFinalType);
+    EXPECT_EQ(*valArrStruc.getTypeId().getCommonPtrId(), ValueCommonPtr<TestStruct>::typeId);
     EXPECT_EQ(valArrStruc.getTypeId().layout.size, sizeof(valArrStruc));
     EXPECT_EQ(valArrStruc.getTypeId().layout.alignment, alignof(decltype(valArrStruc)));
     EXPECT_TRUE(valArrStruc.getTypeId().isReference());
@@ -143,9 +137,8 @@ TEST(ValueTest, Array)
 
     Value<float[3][3]> vallArrFloat;
     EXPECT_TRUE(vallArrFloat.getTypeId().isFinalType);
-    EXPECT_EQ(vallArrFloat.getTypeId().commonTypeId, nullptr);
-    EXPECT_FALSE(vallArrFloat.getTypeId().commonPtrId->isFinalType);
-    EXPECT_EQ(*vallArrFloat.getTypeId().commonPtrId, ValueCommonPtr<float[3]>::typeId);
+    EXPECT_FALSE(vallArrFloat.getTypeId().getCommonPtrId()->isFinalType);
+    EXPECT_EQ(*vallArrFloat.getTypeId().getCommonPtrId(), ValueCommonPtr<float[3]>::typeId);
     EXPECT_EQ(vallArrFloat.getTypeId().layout.size, sizeof(vallArrFloat));
     EXPECT_EQ(vallArrFloat.getTypeId().layout.alignment, alignof(decltype(vallArrFloat)));
     EXPECT_TRUE(vallArrFloat.getTypeId().isReference());
@@ -228,6 +221,32 @@ TEST(ValueTest, TypeIdCreateValue)
     val3->~ValueBase();
     EXPECT_EQ(destructList->size(), 2);
     EXPECT_EQ(valStructPtr, destructList->back());
+}
+
+TEST(ValueTest, TypeIdMatchesParameterType)
+{
+    EXPECT_EQ(Value<std::string>::typeId.matchesType(Value<std::string>::typeId), TypeId::ArgumentMatch::Exact);
+    EXPECT_EQ(Value<int>::typeId.matchesType(Value<float>::typeId), TypeId::ArgumentMatch::Unrelated);
+    EXPECT_EQ(Value<float>::typeId.matchesType(Value<const float>::typeId), TypeId::ArgumentMatch::Cast);
+    EXPECT_EQ(Value<float>::typeId.matchesType(Value<const float&>::typeId), TypeId::ArgumentMatch::Cast);
+    EXPECT_EQ(Value<float>::typeId.matchesType(Value<float*>::typeId), TypeId::ArgumentMatch::Cast);
+    EXPECT_EQ(Value<const float>::typeId.matchesType(Value<const float>::typeId), TypeId::ArgumentMatch::Exact);
+    EXPECT_EQ(Value<const float>::typeId.matchesType(Value<const float&>::typeId), TypeId::ArgumentMatch::Cast);
+    EXPECT_EQ(Value<const float>::typeId.matchesType(Value<float*>::typeId), TypeId::ArgumentMatch::Cast);
+    EXPECT_EQ(Value<float*>::typeId.matchesType(Value<float>::typeId), TypeId::ArgumentMatch::Cast);
+    EXPECT_EQ(Value<float*>::typeId.matchesType(Value<const float*>::typeId), TypeId::ArgumentMatch::ConstMismatch);
+    EXPECT_EQ(Value<float*>::typeId.matchesType(Value<float&>::typeId), TypeId::ArgumentMatch::Cast);
+    EXPECT_EQ(Value<const float*>::typeId.matchesType(Value<float>::typeId), TypeId::ArgumentMatch::Cast);
+    EXPECT_EQ(Value<const float*>::typeId.matchesType(Value<const float*>::typeId), TypeId::ArgumentMatch::Exact);
+    EXPECT_EQ(Value<const float*>::typeId.matchesType(Value<float&>::typeId), TypeId::ArgumentMatch::Cast);
+    EXPECT_EQ(Value<float&>::typeId.matchesType(Value<float>::typeId), TypeId::ArgumentMatch::Cast);
+    EXPECT_EQ(Value<float&>::typeId.matchesType(Value<const float>::typeId), TypeId::ArgumentMatch::ConstMismatch);
+    EXPECT_EQ(Value<float&>::typeId.matchesType(Value<const float&>::typeId), TypeId::ArgumentMatch::ConstMismatch);
+    EXPECT_EQ(Value<float&>::typeId.matchesType(Value<float*>::typeId), TypeId::ArgumentMatch::Cast);
+    EXPECT_EQ(Value<const float&>::typeId.matchesType(Value<float>::typeId), TypeId::ArgumentMatch::Cast);
+    EXPECT_EQ(Value<const float&>::typeId.matchesType(Value<const float>::typeId), TypeId::ArgumentMatch::Cast);
+    EXPECT_EQ(Value<const float&>::typeId.matchesType(Value<const float&>::typeId), TypeId::ArgumentMatch::Exact);
+    EXPECT_EQ(Value<const float&>::typeId.matchesType(Value<float*>::typeId), TypeId::ArgumentMatch::Cast);
 }
 
 TEST(ValueTest, TypeIdAcceptsParameterType)

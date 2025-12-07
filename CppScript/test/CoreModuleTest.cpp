@@ -3,9 +3,10 @@
 #include <CppScript/CoreModule.h>
 #include <CppScript/ValueHolder.h>
 #include <CppScript/IntValue.h>
-#include "Fibonacci.h"
+#include "PerfAlgorithms.h"
 #include "TestUtils.h"
 
+using namespace CppScriptTest;
 using namespace CppScriptOld;
 
 
