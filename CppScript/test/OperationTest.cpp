@@ -93,16 +93,20 @@ using TestOperationBuilder = OperationBuilder<TestOpAdd, TestOpAddFloat, TestOpS
 
 using TestOperationBuilder1 = OperationBuilder<TestOpAdd, TestOpAddFloat>;
 
-using TestOperationBuilderExtended = OperationBuilderExtension<TestOperationBuilder1, TestOpSetVec, TestOpVecNorm, TestOpFloatCompare>::Type;
+using TestOperationBuilderExtended = OperationBuilders<TestOperationBuilder1, OperationBuilder<TestOpSetVec, TestOpVecNorm, TestOpFloatCompare>>;
+
+using TestOperationBuilderExtended2 = OperationBuilders<TestOperationBuilder1, OperationBuilder<TestOpSetVec>, OperationBuilder<TestOpVecNorm, TestOpFloatCompare>>;
 
 static_assert(std::is_same_v<TestOperationBuilder, TestOperationBuilderExtended>);
+static_assert(std::is_same_v<TestOperationBuilder, TestOperationBuilderExtended2>);
 
 using TestOperationBuilder0 = OperationBuilder<TestOpAdd>;
 
-static_assert(std::is_same_v<TestOperationBuilder1, OperationBuilderExtension<TestOperationBuilder0, TestOpAddFloat>::Type>);
+static_assert(std::is_same_v<TestOperationBuilder1, OperationBuilders<TestOperationBuilder0, OperationBuilder<TestOpAddFloat>>>);
 
-static_assert(std::is_same_v<OperationBuilderExtension<TestOperationBuilder0, TestOpAddFloat, TestOpFloatCompare>::Type,
-    OperationBuilderExtension<TestOperationBuilder1, TestOpFloatCompare>::Type>);
+static_assert(std::is_same_v<OperationBuilders<TestOperationBuilder0, OperationBuilder<TestOpAddFloat, TestOpFloatCompare>>,
+    OperationBuilders<TestOperationBuilder1, OperationBuilder<TestOpFloatCompare>>>);
+
 
 template <typename OB>
 typename OB::OperationType resolveValidOperation(const OB& builder, OperationResolutionData opData, TypeFrames& frames, std::size_t expectedOpIndex)

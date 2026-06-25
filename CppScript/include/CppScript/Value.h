@@ -352,6 +352,29 @@ const ValueTypeId<T[N]> Value<T[N]>::typeId{ Value<T[N]>::Base::typeId, true };
 
 
 template <typename T>
+class Value<T&&> : public ValueCommon<TypeCommon<T>>
+{
+public:
+    using Base = ValueCommon<TypeCommon<T>>;
+
+    T&& get() const
+    {
+        return std::move(Base::getRef());
+    }
+
+	const TypeId& getTypeId() const override
+	{
+		return typeId;
+	}
+	
+	static const ValueTypeId<T&&> typeId;
+};
+
+template <typename T>
+const ValueTypeId<T&&> Value<T&&>::typeId{ Value<T&&>::Base::typeId, true };
+
+
+template <typename T>
 class ValueTypeId : public TypeId
 {
 public:

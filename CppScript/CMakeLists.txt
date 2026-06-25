@@ -26,6 +26,7 @@ add_library(CppScript
     include/CppScript/EnumTraits.h
     include/CppScript/IntValue.h
     include/CppScript/Parser.h
+    include/CppScript/ParserUtils.h
 
     include/CppScript/Execution.h
     include/CppScript/FunctionDef.h
@@ -40,6 +41,7 @@ add_library(CppScript
     source/OperationResolver.cpp
     source/Allocator.cpp
     source/Parser.cpp
+    source/ParserUtils.cpp
     source/IntUtils.h
     source/IntUtils.cpp
 
@@ -68,6 +70,8 @@ add_executable(CppScriptTest
     test/IntUtilsTest.cpp
     test/CoreOperationsTest.cpp
     test/ParserTest.cpp
+    test/ParserUtilsTest.h
+    test/ParserUtilsTest.cpp
     test/AllocatorMock.h
     test/AllocatorMock.cpp
     test/OperationResolverProxy.h
@@ -89,3 +93,5 @@ target_link_libraries(CppScriptTest
     CppScript
     gtest::gtest
     )
+
+target_compile_definitions(CppScriptTest PUBLIC TESTING_ENABLED)

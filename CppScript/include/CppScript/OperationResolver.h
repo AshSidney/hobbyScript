@@ -43,10 +43,22 @@ constexpr T& getFrame(std::array<T, framesCount>& frames, const ValuePlace::Type
 }
 
 
+struct ParsedOperationId
+{
+    std::string objectId;
+    std::string moduleId;
+};
+
+inline bool operator==(const ParsedOperationId& opId, const Id& id)
+{
+    return opId.objectId == id.objectId && opId.moduleId == id.moduleId;
+}
+
+
 struct OperationLocation
 {
-    short int line{ 0 };
-    short int column{ 0 };
+    unsigned short line{ 0 };
+    unsigned short column{ 0 };
 };
 
 struct OperationBuildContext 
@@ -67,7 +79,7 @@ struct OperationBlockBuildContext
 
 struct OperationResolutionData
 {
-    Id operationId;
+    ParsedOperationId operationId;
     std::optional<ValuePlace> returnPlace;
 	std::vector<ValuePlace> argumentPlaces;
 	std::vector<int> jumps{ 1 };

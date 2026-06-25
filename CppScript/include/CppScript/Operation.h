@@ -314,12 +314,21 @@ protected:
 
 
 template <typename ... O>
-struct OperationBuilderExtension;
+struct OperationBuildersImpl;
 
-template <typename ... O, typename ... E>
-struct OperationBuilderExtension<OperationBuilder<O...>, E...>
+template <typename ... OB>
+using OperationBuilders = typename OperationBuildersImpl<OB...>::Type;
+
+template <typename ... O>
+struct OperationBuildersImpl<OperationBuilder<O...>>
 {
-	using Type = OperationBuilder<O..., E...>;
+	using Type = OperationBuilder<O...>;
+};
+
+template <typename ... O, typename ... Os, typename ... OBs>
+struct OperationBuildersImpl<OperationBuilder<O...>, OperationBuilder<Os...>, OBs...>
+{
+	using Type = typename OperationBuildersImpl<OperationBuilder<O..., Os...>, OBs...>::Type;
 };
 
 
@@ -415,7 +424,7 @@ private:
 };
 
 template <typename O, typename R, typename ... A>
-std::array<const TypeId*, sizeof...(A)> OperationHelper<O, R, A...>::argumentTypes{ &Value<A>::typeId... };
+std::array<const TypeId*, OperationHelper<O, R, A...>::argumentCount> OperationHelper<O, R, A...>::argumentTypes{ &Value<A>::typeId... };
 
 
 template <auto I, auto O, typename R, typename ... A>
